@@ -41,10 +41,16 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
 
   // ── Error map ──
   final Map<String, String?> _errors = {
-    'gender': null,
-    'dob': null,
-    'height': null,
+    'gender':  null,
+    'dob':     null,
+    'height':  null,
+    'country': null,
+    'city':    null,
   };
+
+  // ── Location ──
+  final TextEditingController _countryCtrl = TextEditingController();
+  final TextEditingController _cityCtrl    = TextEditingController();
 
   @override
   void initState() {
@@ -81,8 +87,12 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
         }
       }
     }
-    _weightKg = LocalStorage.weight;
+    _weightKg   = LocalStorage.weight;
     _weightUnit = LocalStorage.weightUnit;
+
+    // Pre-fill country/city
+    _countryCtrl.text = LocalStorage.country;
+    _cityCtrl.text    = LocalStorage.city;
   }
 
   @override
@@ -92,6 +102,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     _heightCmCtrl.dispose();
     _heightFtCtrl.dispose();
     _heightInCtrl.dispose();
+    _countryCtrl.dispose();
+    _cityCtrl.dispose();
     super.dispose();
   }
 
@@ -145,8 +157,15 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
         }
       }
 
-      if (_errors['gender'] != null) ok = false;
-      if (_errors['dob'] != null) ok = false;
+      _errors['country'] = _countryCtrl.text.trim().isEmpty
+          ? 'Please enter your country' : null;
+      _errors['city'] = _cityCtrl.text.trim().isEmpty
+          ? 'Please enter your city' : null;
+
+      if (_errors['gender'] != null)  ok = false;
+      if (_errors['dob']    != null)  ok = false;
+      if (_errors['country'] != null) ok = false;
+      if (_errors['city']    != null) ok = false;
     });
     return ok;
   }
@@ -178,6 +197,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     await LocalStorage.setWeightUnit(_weightUnit);
     final kgToSave = _weightUnit == 'kg' ? _weightKg : _weightKg;
     await LocalStorage.setWeight(kgToSave);
+
+    // Save country + city
+    await LocalStorage.setCountry(_countryCtrl.text.trim());
+    await LocalStorage.setCity(_cityCtrl.text.trim());
 
     // Mark done
     await LocalStorage.setBasicInfoDone();
@@ -280,6 +303,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                     _buildHeightSection(),
                     const SizedBox(height: 28),
                     _buildWeightSection(),
+                    const SizedBox(height: 28),
+                    _buildLocationSection(),
                     const SizedBox(height: 32),
                     _buildDeviceTestSection(),
                     const SizedBox(height: 32),
@@ -811,6 +836,128 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   }
 
   // ─────────────────────────────────────────────
+  // LOCATION SECTION — country + city for leaderboard
+  // ─────────────────────────────────────────────
+  Widget _buildLocationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Where are you from?'),
+        const SizedBox(height: 6),
+        const Text(
+          'Used for leaderboard country & city filters.',
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textMuted,
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Country field
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _errors['country'] != null
+                  ? AppColors.accentRed
+                  : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.flag_rounded,
+                  color: AppColors.primary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _countryCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) =>
+                      setState(() => _errors['country'] = null),
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textDark,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'e.g. India',
+                    hintStyle: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_errors['country'] != null) ...[
+          const SizedBox(height: 6),
+          _errorText(_errors['country']!),
+        ],
+        const SizedBox(height: 14),
+        // City field
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _errors['city'] != null
+                  ? AppColors.accentRed
+                  : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.location_city_rounded,
+                  color: AppColors.primary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _cityCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) =>
+                      setState(() => _errors['city'] = null),
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textDark,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'e.g. Mumbai',
+                    hintStyle: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_errors['city'] != null) ...[
+          const SizedBox(height: 6),
+          _errorText(_errors['city']!),
+        ],
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────
   // DEVICE TEST SECTION (UI only)
   // ─────────────────────────────────────────────
   Widget _buildDeviceTestSection() {
@@ -887,25 +1034,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
           const SizedBox(height: 16),
           GestureDetector(
             onTap: () {
-              // Day 3 — implement actual device test
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: AppColors.primaryLight,
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(50)),
-                  duration: const Duration(seconds: 2),
-                  content: const Text(
-                    '🔬 Device test coming in Day 3!',
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
-              );
+              context.go('/device_test');
             },
             child: Container(
               width: double.infinity,

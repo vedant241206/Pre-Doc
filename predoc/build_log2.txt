@@ -1,0 +1,6 @@
+Running Gradle task 'assembleRelease'...                        
+The network path was not found.
+Font asset "CupertinoIcons.ttf" was tree-shaken, reducing it from 257628 to 848 bytes (99.7% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 9764 bytes (99.4% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Running Gradle task 'assembleRelease'...                          636.3s
+√ Built build\app\outputs\flutter-apk\app-release.apk (108.6MB)

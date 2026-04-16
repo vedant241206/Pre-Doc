@@ -27,6 +27,8 @@ class LocalStorage {
   static const String _keyWeightUnit = 'weight_unit';
   static const String _keyBasicInfoDone = 'basic_info_done';
   static const String _keyHeightFtInch = 'height_ft_inch'; // stored as "5'11"
+  static const String _keyCountry = 'user_country';
+  static const String _keyCity    = 'user_city';
 
   // Onboarding
   static bool get onboardingDone => prefs.getBool(_keyOnboardingDone) ?? false;
@@ -74,6 +76,12 @@ class LocalStorage {
 
   static String get weightUnit => prefs.getString(_keyWeightUnit) ?? 'kg';
   static Future<void> setWeightUnit(String val) => prefs.setString(_keyWeightUnit, val);
+
+  static String get country => prefs.getString(_keyCountry) ?? '';
+  static Future<void> setCountry(String val) => prefs.setString(_keyCountry, val);
+
+  static String get city => prefs.getString(_keyCity) ?? '';
+  static Future<void> setCity(String val) => prefs.setString(_keyCity, val);
 
   /// Returns the initial route based on saved state
   static String getInitialRoute() {

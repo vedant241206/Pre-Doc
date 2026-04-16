@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/storage_service.dart';
+import '../services/dashboard_service.dart';
+import '../services/notification_service.dart';
+import '../services/insight_service.dart';
 import 'your_tree_screen.dart';
 import 'ask_ai_screen.dart';
 import 'med_checkup_screen.dart';
 import 'nearby_docs_screen.dart';
+// ignore_for_file: prefer_const_constructors
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,13 +20,38 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedTab = 0;
 
+  // ── Dashboard data (cached — not recomputed every frame) ──
+  late TodaySummary  _today;
+  late WeeklySummary _weekly;
+  late List<InsightMessage> _insights;
+
+  static const _dashboard = DashboardService();
+
   final List<_NavItem> _navItems = [
-    _NavItem(icon: Icons.home_rounded, label: 'HOME'),
-    _NavItem(icon: Icons.park_rounded, label: 'YOUR TREE'),
-    _NavItem(icon: Icons.smart_toy_rounded, label: 'ASK AI'),
+    _NavItem(icon: Icons.home_rounded,             label: 'HOME'),
+    _NavItem(icon: Icons.park_rounded,             label: 'YOUR TREE'),
+    _NavItem(icon: Icons.smart_toy_rounded,        label: 'ASK AI'),
     _NavItem(icon: Icons.medical_services_rounded, label: 'MED CHECKUP'),
-    _NavItem(icon: Icons.location_on_rounded, label: 'NEARBY DOCS'),
+    _NavItem(icon: Icons.location_on_rounded,      label: 'NEARBY DOCS'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+    // Show daily notification after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.maybeShowDailyBanner(context, _today);
+    });
+  }
+
+  /// Synchronous — SessionResult data is already loaded in SharedPreferences.
+  void _loadDashboard() {
+    final sessions = StorageService.getSessions();
+    _today   = _dashboard.computeToday(sessions);
+    _weekly  = _dashboard.computeWeekly(sessions);
+    _insights = _dashboard.computeInsights(_today);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,69 +75,95 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // HOME TAB
+  // ─────────────────────────────────────────────────────────────
+
   Widget _buildHomeTab() {
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(child: _buildHeader()),
-        SliverToBoxAdapter(child: _buildTodaySection()),
-        SliverToBoxAdapter(child: _buildPastWeekSection()),
-        SliverToBoxAdapter(child: _buildImprovementsSection()),
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
-      ],
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async {
+        setState(_loadDashboard);
+      },
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(child: _buildHeader()),
+          SliverToBoxAdapter(child: _buildTodaySection()),
+          SliverToBoxAdapter(child: _buildWeeklySection()),
+          SliverToBoxAdapter(child: _buildInsightsSection()),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // HEADER
+  // ─────────────────────────────────────────────────────────────
+
   Widget _buildHeader() {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Good morning 🌅'
+        : hour < 17
+            ? 'Good afternoon ☀️'
+            : 'Good evening 🌙';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.health_and_safety_rounded,
-                  color: AppColors.primary, size: 28),
-              SizedBox(width: 8),
               Text(
-                'Predoc',
-                style: TextStyle(
+                greeting,
+                style: const TextStyle(
                   fontFamily: 'Nunito',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMuted,
                 ),
+              ),
+              const SizedBox(height: 2),
+              const Row(
+                children: [
+                  Icon(Icons.health_and_safety_rounded,
+                      color: AppColors.primary, size: 24),
+                  SizedBox(width: 6),
+                  Text(
+                    'Predoc',
+                    style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: AppColors.primaryLight,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.notifications_rounded,
-                    color: AppColors.primary, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: AppColors.primaryDark,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person_rounded,
-                    color: Colors.white, size: 22),
-              ),
-            ],
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: AppColors.primaryDark,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.person_rounded,
+                color: Colors.white, size: 22),
           ),
         ],
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // TODAY SECTION
+  // ─────────────────────────────────────────────────────────────
 
   Widget _buildTodaySection() {
     return Padding(
@@ -119,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                "Today's Analytics",
+                "Today's Health",
                 style: TextStyle(
                   fontFamily: 'Nunito',
                   fontSize: 20,
@@ -128,15 +184,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 decoration: BoxDecoration(
                   color: AppColors.primaryLight,
                   borderRadius: BorderRadius.circular(50),
                 ),
-                child: const Text(
-                  'Live Updates',
-                  style: TextStyle(
+                child: Text(
+                  _today.hasData ? 'Live Data' : 'No Data Yet',
+                  style: const TextStyle(
                     fontFamily: 'Nunito',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -147,28 +202,63 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _StepsCard()),
-              const SizedBox(width: 14),
-              Expanded(child: _HealthScoreCard()),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _HeartRateCard(),
+
+          if (!_today.hasData) ...[
+            _EmptyStateCard(
+              icon: Icons.health_and_safety_outlined,
+              title: 'No data yet',
+              subtitle: 'Complete your device test to see your health score.',
+            ),
+          ] else ...[
+            // Health score card (big, coloured)
+            _HealthScoreCard(score: _today.score, color: _today.color),
+            const SizedBox(height: 14),
+            // Cough / Sneeze / Snore count row
+            Row(
+              children: [
+                Expanded(
+                    child: _CountCard(
+                  icon: '🤧',
+                  label: 'COUGH',
+                  count: _today.coughCount,
+                  accentColor: const Color(0xFFEF4444),
+                )),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: _CountCard(
+                  icon: '🤲',
+                  label: 'SNEEZE',
+                  count: _today.sneezeCount,
+                  accentColor: const Color(0xFFF59E0B),
+                )),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: _CountCard(
+                  icon: '😴',
+                  label: 'SNORE',
+                  count: _today.snoreCount,
+                  accentColor: const Color(0xFF8B5CF6),
+                )),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildPastWeekSection() {
+  // ─────────────────────────────────────────────────────────────
+  // WEEKLY SECTION
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildWeeklySection() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Past Week Analytics',
+            'Past 7 Days',
             style: TextStyle(
               fontFamily: 'Nunito',
               fontSize: 20,
@@ -177,83 +267,128 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: const [
-                BoxShadow(
-                    color: AppColors.shadow,
-                    blurRadius: 10,
-                    offset: Offset(0, 3))
-              ],
+          if (!_weekly.hasData) ...[
+            _EmptyStateCard(
+              icon: Icons.bar_chart_rounded,
+              title: 'No weekly data',
+              subtitle: 'Complete a few sessions to see weekly trends.',
             ),
-            child: Column(
-              children: [
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Stable',
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.textDark,
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(
+                      color: AppColors.shadow,
+                      blurRadius: 10,
+                      offset: Offset(0, 3))
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Top row — trend + date range
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _weekly.trend,
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: _weekly.trend.contains('↑')
+                                  ? AppColors.accentGreen
+                                  : _weekly.trend.contains('↓')
+                                      ? AppColors.accentRed
+                                      : AppColors.textDark,
+                            ),
                           ),
-                        ),
-                        Text(
-                          'OVERALL ACTIVITY',
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textMuted,
-                            letterSpacing: 1,
+                          const Text(
+                            'WEEKLY TREND',
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textMuted,
+                              letterSpacing: 1,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Icon(Icons.calendar_today_rounded,
-                            size: 16, color: AppColors.textMuted),
-                        SizedBox(width: 6),
-                        Text(
-                          'Jun 12 – Jun 18',
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textMuted,
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today_rounded,
+                              size: 14, color: AppColors.textMuted),
+                          const SizedBox(width: 5),
+                          Text(
+                            _weekly.dateRange,
+                            style: const TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textMuted,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _WeekdayBar(),
-              ],
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Weekly bar chart
+                  _WeeklyBarChart(bars: _weekly.bars),
+                  const SizedBox(height: 20),
+                  // Weekly totals row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _WeekStat(
+                          label: 'Avg Score',
+                          value: _weekly.avgScore.round().toString(),
+                          icon: Icons.favorite_rounded,
+                          color: AppColors.primary),
+                      _WeekStat(
+                          label: 'Coughs',
+                          value: _weekly.totalCough.toString(),
+                          icon: Icons.air_rounded,
+                          color: const Color(0xFFEF4444)),
+                      _WeekStat(
+                          label: 'Sneezes',
+                          value: _weekly.totalSneeze.toString(),
+                          icon: Icons.water_drop_rounded,
+                          color: const Color(0xFFF59E0B)),
+                      _WeekStat(
+                          label: 'Snores',
+                          value: _weekly.totalSnore.toString(),
+                          icon: Icons.bedtime_rounded,
+                          color: const Color(0xFF8B5CF6)),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildImprovementsSection() {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 28, 20, 0),
+  // ─────────────────────────────────────────────────────────────
+  // INSIGHTS SECTION
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildInsightsSection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Things to Improve',
+          const Text(
+            'Insights',
             style: TextStyle(
               fontFamily: 'Nunito',
               fontSize: 20,
@@ -261,34 +396,27 @@ class _HomeScreenState extends State<HomeScreen> {
               color: AppColors.textDark,
             ),
           ),
-          SizedBox(height: 14),
-          _ImprovementCard(
-            icon: Icons.nightlight_round,
-            iconBg: Color(0xFFFEF3C7),
-            iconColor: Color(0xFFB45309),
-            title: 'Sleep Consistency',
-            subtitle:
-                'Your bedtime varied by 90 minutes this week. Aim for a 30-minute window.',
-            actionLabel: 'VIEW SOLUTION →',
-            actionColor: AppColors.primary,
-            showTextAction: true,
-          ),
-          SizedBox(height: 14),
-          _ImprovementCard(
-            icon: Icons.water_drop_rounded,
-            iconBg: AppColors.primaryLight,
-            iconColor: AppColors.primary,
-            title: 'Hydration Intake',
-            subtitle:
-                "You're 400ml behind your daily goal. Drinking water now could boost focus.",
-            actionLabel: 'LOG 250ML',
-            actionColor: AppColors.primary,
-            showTextAction: false,
-          ),
+          const SizedBox(height: 14),
+          if (_insights.isEmpty) ...[
+            _EmptyStateCard(
+              icon: Icons.lightbulb_outline_rounded,
+              title: 'No insights yet',
+              subtitle: 'Complete your device test to get personalised tips.',
+            ),
+          ] else ...[
+            for (int i = 0; i < _insights.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              _InsightCard(msg: _insights[i]),
+            ],
+          ],
         ],
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // BOTTOM NAV (unchanged from Day 1–5)
+  // ─────────────────────────────────────────────────────────────
 
   Widget _buildBottomNav() {
     return Container(
@@ -349,297 +477,322 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// NAV ITEM MODEL
+// ─────────────────────────────────────────────────────────────
+
 class _NavItem {
   final IconData icon;
   final String label;
-  _NavItem({required this.icon, required this.label});
+  const _NavItem({required this.icon, required this.label});
 }
 
-// ── Steps Card ──
-class _StepsCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(
-              color: AppColors.shadow,
-              blurRadius: 10,
-              offset: Offset(0, 3))
-        ],
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.directions_run_rounded,
-              color: AppColors.primary, size: 28),
-          SizedBox(height: 10),
-          Text(
-            '8,432',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              color: AppColors.textDark,
-            ),
-          ),
-          Text(
-            'STEPS',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textMuted,
-              letterSpacing: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────
+// HEALTH SCORE CARD — coloured by band
+// ─────────────────────────────────────────────────────────────
 
-// ── Health Score Card ──
 class _HealthScoreCard extends StatelessWidget {
+  final int score;
+  final HealthColor color;
+
+  const _HealthScoreCard({required this.score, required this.color});
+
+  Color get _bg {
+    switch (color) {
+      case HealthColor.green:  return const Color(0xFF22C55E);
+      case HealthColor.yellow: return const Color(0xFFF59E0B);
+      case HealthColor.red:    return const Color(0xFFEF4444);
+    }
+  }
+
+  String get _label {
+    switch (color) {
+      case HealthColor.green:  return 'Great — keep it up! 🎉';
+      case HealthColor.yellow: return 'Fair — room to improve';
+      case HealthColor.red:    return 'Needs attention ⚠️';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(20),
+        color: _bg,
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.4),
-              blurRadius: 14,
-              offset: const Offset(0, 5))
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.favorite_rounded, color: Colors.white, size: 28),
-          const SizedBox(height: 10),
-          const Text(
-            '92',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 36,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-            ),
-          ),
-          const Text(
-            'HEALTH SCORE',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.white70,
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(50),
-            ),
-            child: const Text(
-              '+4 pts from yesterday',
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Heart Rate Card ──
-class _HeartRateCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(
-              color: AppColors.shadow,
-              blurRadius: 10,
-              offset: Offset(0, 3))
+              color: _bg.withValues(alpha: 0.38),
+              blurRadius: 18,
+              offset: const Offset(0, 6))
         ],
       ),
       child: Row(
         children: [
+          // Score circle
           Container(
-            width: 46,
-            height: 46,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFFF0F0),
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.monitor_heart_rounded,
-                color: AppColors.accentRed, size: 24),
-          ),
-          const SizedBox(width: 14),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '72 BPM',
-                style: TextStyle(
+            child: Center(
+              child: Text(
+                '$score',
+                style: const TextStyle(
                   fontFamily: 'Nunito',
-                  fontSize: 20,
+                  fontSize: 36,
                   fontWeight: FontWeight.w900,
-                  color: AppColors.textDark,
+                  color: Colors.white,
                 ),
               ),
-              Text(
-                'RESTING HEART RATE',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textMuted,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ],
+            ),
           ),
-          const Spacer(),
-          _HeartBars(),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'HEALTH SCORE',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white70,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _label,
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Score bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(50),
+                  child: LinearProgressIndicator(
+                    value: score / 100.0,
+                    minHeight: 6,
+                    backgroundColor: Colors.white.withValues(alpha: 0.28),
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _HeartBars extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final heights = [14.0, 22.0, 30.0, 22.0, 18.0];
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: heights
-          .map((h) => Padding(
-                padding: const EdgeInsets.only(left: 3),
-                child: Container(
-                  width: 6,
-                  height: h,
-                  decoration: BoxDecoration(
-                    color: AppColors.accentRed.withValues(alpha: 0.6 + h / 100),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-              ))
-          .toList(),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────
+// COUNT CARD — cough / sneeze / snore
+// ─────────────────────────────────────────────────────────────
 
-// ── Weekday Bar ──
-class _WeekdayBar extends StatelessWidget {
-  final days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  final activeIndex = 3;
+class _CountCard extends StatelessWidget {
+  final String icon;
+  final String label;
+  final int count;
+  final Color accentColor;
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: List.generate(days.length, (i) {
-        final isActive = i == activeIndex;
-        return Column(
-          children: [
-            if (isActive)
-              Container(
-                width: 28,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              )
-            else
-              const SizedBox(height: 3),
-            const SizedBox(height: 6),
-            Text(
-              days[i],
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 13,
-                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                color: isActive ? AppColors.primary : AppColors.textMuted,
-              ),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-}
-
-// ── Improvement Card ──
-class _ImprovementCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final String actionLabel;
-  final Color actionColor;
-  final bool showTextAction;
-
-  const _ImprovementCard({
+  const _CountCard({
     required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.actionLabel,
-    required this.actionColor,
-    required this.showTextAction,
+    required this.label,
+    required this.count,
+    required this.accentColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+              color: AppColors.shadow,
+              blurRadius: 8,
+              offset: Offset(0, 3))
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 24)),
+          const SizedBox(height: 8),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: accentColor,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textMuted,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// WEEKLY BAR CHART
+// ─────────────────────────────────────────────────────────────
+
+class _WeeklyBarChart extends StatelessWidget {
+  final List<DayBar> bars;
+
+  const _WeeklyBarChart({required this.bars});
+
+  @override
+  Widget build(BuildContext context) {
+    const maxHeight = 60.0;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: bars.map((b) {
+        final fill    = b.fill;
+        final label   = b.label;
+        final hasData = b.hasData;
+        final barH    = hasData ? (fill * maxHeight).clamp(6.0, maxHeight) : 4.0;
+        final isToday = bars.indexOf(b) == bars.length - 1;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              width: 26,
+              height: barH,
+              decoration: BoxDecoration(
+                color: hasData
+                    ? (isToday
+                        ? AppColors.primary
+                        : AppColors.primaryMid.withValues(alpha: 0.6))
+                    : AppColors.divider,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 12,
+                fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
+                color: isToday ? AppColors.primary : AppColors.textMuted,
+              ),
+            ),
+          ],
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// WEEK STAT (avg score / total coughs etc.)
+// ─────────────────────────────────────────────────────────────
+
+class _WeekStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _WeekStat(
+      {required this.label,
+      required this.value,
+      required this.icon,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// INSIGHT CARD
+// ─────────────────────────────────────────────────────────────
+
+class _InsightCard extends StatelessWidget {
+  final InsightMessage msg;
+  const _InsightCard({required this.msg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.primaryLight.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.divider, width: 1),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: iconBg,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: iconColor, size: 24),
-          ),
+          Text(msg.emoji, style: const TextStyle(fontSize: 26)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
+                  msg.title,
                   style: const TextStyle(
                     fontFamily: 'Nunito',
                     fontSize: 15,
@@ -647,9 +800,9 @@ class _ImprovementCard extends StatelessWidget {
                     color: AppColors.textDark,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
-                  subtitle,
+                  msg.body,
                   style: const TextStyle(
                     fontFamily: 'Nunito',
                     fontSize: 13,
@@ -658,36 +811,60 @@ class _ImprovementCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 10),
-                if (showTextAction)
-                  Text(
-                    actionLabel,
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: actionColor,
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: actionColor,
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Text(
-                      actionLabel,
-                      style: const TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMPTY STATE CARD
+// ─────────────────────────────────────────────────────────────
+
+class _EmptyStateCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _EmptyStateCard(
+      {required this.icon, required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.divider, width: 1.2),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 40, color: AppColors.primaryMid),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textMuted,
+              height: 1.4,
             ),
           ),
         ],

@@ -1,0 +1,147 @@
+﻿Running Gradle task 'assembleRelease'...                        
+Warning: The plugin camera_android_camerax requires Android SDK version 36 or higher.
+For more information about build configuration, see https://flutter.dev/to/review-gradle-config.
+Warning: The plugin flutter_plugin_android_lifecycle requires Android SDK version 36 or higher.
+For more information about build configuration, see https://flutter.dev/to/review-gradle-config.
+Warning: The plugin record_android requires Android SDK version 36 or higher.
+For more information about build configuration, see https://flutter.dev/to/review-gradle-config.
+Warning: The plugin shared_preferences_android requires Android SDK version 36 or higher.
+For more information about build configuration, see https://flutter.dev/to/review-gradle-config.
+Warning: The plugin tflite_flutter requires Android SDK version 36 or higher.
+For more information about build configuration, see https://flutter.dev/to/review-gradle-config.
+flutter : Your project 
+is configured to 
+compile against Android 
+SDK 35, but the 
+following plugin(s) 
+require to be compiled 
+against a higher 
+Android SDK version:
+At line:1 char:1
++ flutter build apk 
+*>&1 | Out-File 
+-FilePath 
+build_log_utf8.txt 
+-Encod ...
++ ~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo      
+        : NotSpecified: 
+(Y    our project 
+is...id S    DK 
+version::String) [    
+], RemoteException
+    + 
+FullyQualifiedError    
+Id : NativeCommandErr   
+ or
+ 
+- 
+camera_android_camerax 
+compiles against 
+Android SDK 36
+- flutter_plugin_android
+_lifecycle compiles 
+against Android SDK 36
+- record_android 
+compiles against 
+Android SDK 36
+- shared_preferences_and
+roid compiles against 
+Android SDK 36
+- tflite_flutter 
+compiles against 
+Android SDK 36
+Fix this issue by 
+compiling against the 
+highest Android SDK 
+version (they are 
+backward compatible).
+Add the following to C:\
+hpv\predoc\android\app\b
+uild.gradle.kts:
+
+    android {
+        compileSdk = 36
+        ...
+    }
+'C:\Users\krutika' is 
+not recognized as an 
+internal or external 
+command,
+operable program or 
+batch file.
+
+Building native assets 
+for package:objective_c 
+failed.
+Compilation of hook 
+returned with exit 
+code: 1.
+To reproduce run:
+C:\Users\krutika nilesh 
+pawar\Pre-Doc app\flutte
+r\bin\cache\dart-sdk\bin
+\dart compile kernel --p
+ackages=C:\hpv\predoc\.d
+art_tool\package_config.
+json --output=C:\hpv\pre
+doc\.dart_tool\hooks_run
+ner\objective_c\8b231462
+d2\hook.dill --depfile=C
+:\hpv\predoc\.dart_tool\
+hooks_runner\objective_c
+\8b231462d2\hook.dill.d 
+'C:\Users\krutika 
+nilesh pawar\AppData\Loc
+al\Pub\Cache\hosted\pub.
+dev\objective_c-9.3.0\ho
+ok\build.dart'
+stderr:
+'C:\Users\krutika' is 
+not recognized as an 
+internal or external 
+command,
+operable program or 
+batch file.
+
+stdout:
+
+
+Target dart_build 
+failed: Error: Building 
+native assets failed. 
+See the logs for more 
+details.
+
+
+FAILURE: Build failed 
+with an exception.
+
+* What went wrong:
+Execution failed for 
+task ':app:compileFlutte
+rBuildRelease'.
+> Process 'command 
+'C:\Users\krutika 
+nilesh pawar\Pre-Doc app
+\flutter\bin\flutter.bat
+'' finished with 
+non-zero exit value 1
+
+* Try:
+> Run with --stacktrace 
+option to get the stack 
+trace.
+> Run with --info or 
+--debug option to get 
+more log output.
+> Run with --scan to 
+get full insights.
+> Get more help at 
+https://help.gradle.org.
+
+BUILD FAILED in 8s
+Running Gradle task 'assembleRelease'...                            9.2s
+Gradle task 
+assembleRelease failed 
+with exit code 1

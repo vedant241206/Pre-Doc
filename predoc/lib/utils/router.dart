@@ -3,7 +3,9 @@ import '../screens/intro_screen.dart';
 import '../screens/auth_screen.dart';
 import '../screens/permissions_screen.dart';
 import '../screens/basic_info_screen.dart';
+import '../screens/device_test_screen.dart';
 import '../screens/home_screen.dart';
+import '../screens/leaderboard_screen.dart';
 import '../utils/local_storage.dart';
 
 GoRouter createRouter() {
@@ -33,9 +35,19 @@ GoRouter createRouter() {
         builder: (context, state) => const BasicInfoScreen(),
       ),
       GoRoute(
+        path: '/device_test',
+        name: 'device_test',
+        builder: (context, state) => const DeviceTestScreen(),
+      ),
+      GoRoute(
         path: '/home',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/leaderboard',
+        name: 'leaderboard',
+        builder: (context, state) => const LeaderboardScreen(),
       ),
     ],
   );
