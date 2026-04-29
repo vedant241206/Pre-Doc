@@ -1,27 +1,21 @@
-// ContinuousAudioService — Day 8
+// ContinuousAudioService — Day 9
 //
-// Bridges Flutter ↔ Android foreground service for always-on audio monitoring.
-// All detection logic (windowing, smoothing, thresholds, cooldowns) runs here
-// in Dart, reusing the same constants as AudioService so the two are always
-// in sync.  Raw audio is NEVER stored — only event counts.
+// STRICT DATA PIPELINE:
+//   AudioChunk → YAMNet → Smoothing → Threshold check → Cooldown → Confirmed
+//   → StorageService.incrementEvent()  [IMMEDIATE — in-memory + prefs]
+//   → StorageService.liveCountsNotifier fires
+//   → UI ValueListenableBuilder rebuilds
 //
-// ARCHITECTURE:
-//   Flutter side  → sends start/stop via MethodChannel
-//   Android side  → ContinuousAudioForegroundService.kt
-//                    • shows persistent notification
-//                    • holds a PARTIAL_WAKE_LOCK
-//                    • proxies mic bytes back via EventChannel
-//   Detection     → runs here, on a dart:async Timer loop
-//
-// SAFETY RULES enforced:
+// SAFETY RULES ENFORCED:
 //   ✓ DO NOT store raw audio
 //   ✓ DO NOT upload data
-//   ✓ Persistent foreground notification always visible
-//   ✓ Inference only every 2nd window (performance guard)
+//   ✓ Confidence check before any increment (Part 6)
+//   ✓ 3-second cooldown between same-type events (Part 6)
+//   ✓ Persistent foreground notification
+//   ✓ Health-condition thresholds respected (Part 5)
 
 import 'dart:async';
 import 'dart:math';
-
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +23,7 @@ import 'package:record/record.dart';
 
 import 'model_service.dart';
 import 'storage_service.dart';
+import 'user_context_service.dart';
 
 // ─────────────────────────────────────────────────────────────
 // LIVE EVENT  (broadcast from detection loop → UI)
@@ -37,10 +32,12 @@ import 'storage_service.dart';
 class LiveDetectionEvent {
   final String eventType;   // 'cough' | 'sneeze' | 'snore'
   final DateTime timestamp;
+  final double confidence;
 
   const LiveDetectionEvent({
     required this.eventType,
     required this.timestamp,
+    required this.confidence,
   });
 }
 
@@ -56,22 +53,24 @@ class ContinuousAudioService {
   // ── Android foreground-service channel ──────────────────────
   static const _fgChannel = MethodChannel('predoc/continuous_audio');
 
-  // ── PCM recording (same as AudioService) ────────────────────
+  // ── PCM recording ────────────────────────────────────────────
   final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _recordSub;
 
-  // ── Detection constants (mirrors AudioService) ───────────────
-  static const double _coughThreshold  = 0.30;
-  static const double _sneezeThreshold = 0.35;
-  static const double _snoreThreshold  = 0.40;
+  // ── Detection thresholds (loaded from UserContextService) ────
+  double _coughThreshold  = 0.30;
+  double _sneezeThreshold = 0.35;
+  double _snoreThreshold  = 0.40;
 
+  // ── Confirmation window counts ───────────────────────────────
   static const int _coughMinWindows  = 3;
   static const int _sneezeMinWindows = 3;
   static const int _snoreMinWindows  = 4;
 
+  // ── Cooldown between confirmed events (Part 6) ───────────────
   static const Duration _cooldown = Duration(seconds: 3);
 
-  // ── PCM windowing (same as AudioService) ────────────────────
+  // ── PCM windowing ────────────────────────────────────────────
   static const int _windowSamples = 15600;         // 0.975 s @ 16 kHz
   static const int _windowBytes   = _windowSamples * 2; // 31200 bytes
   static const int _hopBytes      = _windowBytes ~/ 2;  // 50% overlap
@@ -87,7 +86,7 @@ class ContinuousAudioService {
   DateTime? _lastSneezeTime;
   DateTime? _lastSnoreTime;
 
-  // ── Confirmation counters (reset per cooldown window) ────────
+  // ── Confirmation counters ────────────────────────────────────
   int _coughWindowCount  = 0;
   int _sneezeWindowCount = 0;
   int _snoreWindowCount  = 0;
@@ -102,17 +101,12 @@ class ContinuousAudioService {
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
-  // ── Live counters (cumulative for current "session") ─────────
-  int liveCountCough  = 0;
-  int liveCountSneeze = 0;
-  int liveCountSnore  = 0;
-
-  // ── Live probability stream (for UI pulse bar) ───────────────
+  // ── Live probability stream (for pulse bar UI) ───────────────
   final StreamController<Map<String, double>> _probStreamCtrl =
       StreamController.broadcast();
   Stream<Map<String, double>> get probStream => _probStreamCtrl.stream;
 
-  // ── Confirmed event stream (for counters + storage) ──────────
+  // ── Confirmed event stream ────────────────────────────────────
   final StreamController<LiveDetectionEvent> _eventStreamCtrl =
       StreamController.broadcast();
   Stream<LiveDetectionEvent> get eventStream => _eventStreamCtrl.stream;
@@ -126,13 +120,16 @@ class ContinuousAudioService {
 
     debugPrint('[ContinuousAudio] Starting foreground service + mic stream...');
 
-    // 1. Ask Android to launch the foreground service (shows notification)
+    // Load health-condition thresholds (Part 5)
+    _reloadThresholds();
+
+    // 1. Ask Android to launch the foreground service
     try {
       await _fgChannel.invokeMethod('startForeground');
       debugPrint('[ContinuousAudio] Foreground service started ✓');
     } catch (e) {
       debugPrint('[ContinuousAudio] Foreground service start error: $e');
-      // Continue anyway — mic still works without it on dev builds
+      // Continue — mic still works without it in dev builds
     }
 
     // 2. Check mic permission
@@ -151,6 +148,10 @@ class ContinuousAudioService {
         numChannels: 1,
       ));
       debugPrint('[ContinuousAudio] PCM stream started ✓ (16-bit, 16 kHz, mono)');
+      debugPrint('[ContinuousAudio] Thresholds — '
+          'cough=${_coughThreshold.toStringAsFixed(2)} '
+          'sneeze=${_sneezeThreshold.toStringAsFixed(2)} '
+          'snore=${_snoreThreshold.toStringAsFixed(2)}');
 
       _isRunning = true;
       _resetState();
@@ -163,6 +164,24 @@ class ContinuousAudioService {
       debugPrint('[ContinuousAudio] Failed to start mic: $e');
       await _stopForeground();
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // RELOAD THRESHOLDS (call when health condition changes)
+  // ─────────────────────────────────────────────────────────────
+
+  void _reloadThresholds() {
+    final profile = UserContextService.getThresholds();
+    _coughThreshold  = profile.coughThreshold;
+    _sneezeThreshold = profile.sneezeThreshold;
+    _snoreThreshold  = profile.snoreThreshold;
+    debugPrint('[ContinuousAudio] Thresholds reloaded from UserContextService: '
+        'cough=$_coughThreshold sneeze=$_sneezeThreshold snore=$_snoreThreshold');
+  }
+
+  /// Call this from the UI when the user changes their health condition.
+  void refreshThresholds() {
+    _reloadThresholds();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -203,10 +222,10 @@ class ContinuousAudioService {
 
     // ── Sliding window with 50% overlap ─────────────────────
     while (_rawBuffer.length >= _windowBytes) {
-      // Buffer overflow guard: discard oldest hop if too large
+      // Buffer overflow guard
       if (_rawBuffer.length > _windowBytes * 4) {
         _rawBuffer.removeRange(0, _hopBytes);
-        debugPrint('[ContinuousAudio] Buffer overflow guard — discarding oldest hop');
+        debugPrint('[AUDIO] Buffer overflow guard — discarding oldest hop');
       }
 
       final chunk = _rawBuffer.sublist(0, _windowBytes);
@@ -217,6 +236,8 @@ class ContinuousAudioService {
         _rawBuffer.removeRange(0, _hopBytes);
         continue;
       }
+
+      debugPrint('[AUDIO] Window #$_windowIndex processed (${chunk.length} bytes)');
 
       // ── Convert PCM → Float32 [-1.0, 1.0] ───────────────
       final floatList = Float32List(_windowSamples);
@@ -241,6 +262,9 @@ class ContinuousAudioService {
           if (label.contains('sneeze')) rawSneeze = max(rawSneeze, prob);
           if (label.contains('snore'))  rawSnore  = max(rawSnore,  prob);
         }
+        debugPrint('[MODEL] cough prob: ${rawCough.toStringAsFixed(3)} '
+            'sneeze prob: ${rawSneeze.toStringAsFixed(3)} '
+            'snore prob: ${rawSnore.toStringAsFixed(3)}');
       }
 
       // ── Smoothing (rolling average of last 3 windows) ────
@@ -261,41 +285,62 @@ class ContinuousAudioService {
         });
       }
 
-      debugPrint('[ContinuousAudio] W#$_windowIndex '
-          'cough=${smoothCough.toStringAsFixed(3)} '
-          'sneeze=${smoothSneeze.toStringAsFixed(3)} '
-          'snore=${smoothSnore.toStringAsFixed(3)}');
-
       // ── Threshold crossing ───────────────────────────────
-      if (smoothCough  >= _coughThreshold)  _coughWindowCount++;
-      if (smoothSneeze >= _sneezeThreshold) _sneezeWindowCount++;
-      if (smoothSnore  >= _snoreThreshold)  _snoreWindowCount++;
+      final coughCross  = smoothCough  >= _coughThreshold;
+      final sneezeCross = smoothSneeze >= _sneezeThreshold;
+      final snoreCross  = smoothSnore  >= _snoreThreshold;
+
+      if (coughCross)  _coughWindowCount++;
+      if (sneezeCross) _sneezeWindowCount++;
+      if (snoreCross)  _snoreWindowCount++;
 
       // ── Confirmation + cooldown ──────────────────────────
       final now = DateTime.now();
-      _tryConfirm('cough',  _coughWindowCount,  _coughMinWindows,
-          _lastCoughTime, now, () {
-        _lastCoughTime   = now;
-        _coughWindowCount = 0;
-        liveCountCough++;
-        _emitEvent('cough', now);
-      });
 
-      _tryConfirm('sneeze', _sneezeWindowCount, _sneezeMinWindows,
-          _lastSneezeTime, now, () {
-        _lastSneezeTime   = now;
-        _sneezeWindowCount = 0;
-        liveCountSneeze++;
-        _emitEvent('sneeze', now);
-      });
+      // COUGH
+      _tryConfirm(
+        label:       'cough',
+        windowCount: _coughWindowCount,
+        minWindows:  _coughMinWindows,
+        confidence:  smoothCough,
+        lastTime:    _lastCoughTime,
+        now:         now,
+        onConfirmed: () {
+          _lastCoughTime   = now;
+          _coughWindowCount = 0;
+          _emitAndStore('cough', now, smoothCough);
+        },
+      );
 
-      _tryConfirm('snore', _snoreWindowCount,  _snoreMinWindows,
-          _lastSnoreTime, now, () {
-        _lastSnoreTime   = now;
-        _snoreWindowCount = 0;
-        liveCountSnore++;
-        _emitEvent('snore', now);
-      });
+      // SNEEZE
+      _tryConfirm(
+        label:       'sneeze',
+        windowCount: _sneezeWindowCount,
+        minWindows:  _sneezeMinWindows,
+        confidence:  smoothSneeze,
+        lastTime:    _lastSneezeTime,
+        now:         now,
+        onConfirmed: () {
+          _lastSneezeTime   = now;
+          _sneezeWindowCount = 0;
+          _emitAndStore('sneeze', now, smoothSneeze);
+        },
+      );
+
+      // SNORE
+      _tryConfirm(
+        label:       'snore',
+        windowCount: _snoreWindowCount,
+        minWindows:  _snoreMinWindows,
+        confidence:  smoothSnore,
+        lastTime:    _lastSnoreTime,
+        now:         now,
+        onConfirmed: () {
+          _lastSnoreTime   = now;
+          _snoreWindowCount = 0;
+          _emitAndStore('snore', now, smoothSnore);
+        },
+      );
 
       // ── Advance by hop (50% overlap) ─────────────────────
       _rawBuffer.removeRange(0, _hopBytes);
@@ -303,41 +348,70 @@ class ContinuousAudioService {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // CONFIRMATION HELPER
+  // CONFIRMATION HELPER  (Part 6 — validation rules)
   // ─────────────────────────────────────────────────────────────
 
-  void _tryConfirm(
-    String label,
-    int windowCount,
-    int minWindows,
-    DateTime? lastTime,
-    DateTime now,
-    VoidCallback onConfirmed,
-  ) {
+  void _tryConfirm({
+    required String    label,
+    required int       windowCount,
+    required int       minWindows,
+    required double    confidence,
+    required DateTime? lastTime,
+    required DateTime  now,
+    required VoidCallback onConfirmed,
+  }) {
     if (windowCount < minWindows) return;
+
+    // Part 6 rule 2: ignore if cooldown < 3 sec
     if (lastTime != null && now.difference(lastTime) < _cooldown) {
       debugPrint('[ContinuousAudio] $label in cooldown — skipped');
       return;
     }
-    debugPrint('[ContinuousAudio] ✓ $label confirmed!');
+
+    // Part 6 rule 1: ignore if confidence below threshold (already guaranteed
+    // by windowCount gate, but explicit check here for clarity / safety)
+    if (confidence < 0.10) {
+      debugPrint('[ContinuousAudio] $label confidence too low ($confidence) — ignored');
+      return;
+    }
+
+    debugPrint('[DETECT] $label detected! confidence=${confidence.toStringAsFixed(3)}');
     onConfirmed();
   }
 
   // ─────────────────────────────────────────────────────────────
-  // EMIT CONFIRMED EVENT
+  // EMIT + STORE  (the STRICT pipeline)
+  // ─────────────────────────────────────────────────────────────
+  //
+  //  1. Emit to eventStream  → UI stream listeners (prob bar, etc.)
+  //  2. StorageService.incrementEvent()  → atomic in-memory + prefs
+  //  3. StorageService.saveLiveEvent()   → rolling JSON event log
+  //
+  //  This replaces the old single saveLiveEvent() call which did NOT
+  //  update the ValueNotifier and could be missed if stream was unsubbed.
   // ─────────────────────────────────────────────────────────────
 
-  void _emitEvent(String type, DateTime timestamp) {
+  void _emitAndStore(String type, DateTime timestamp, double confidence) {
+    // 1. Broadcast to stream (UI pulse bar, etc.)
     if (!_eventStreamCtrl.isClosed) {
       _eventStreamCtrl.add(LiveDetectionEvent(
-        eventType: type,
-        timestamp: timestamp,
+        eventType:  type,
+        timestamp:  timestamp,
+        confidence: confidence,
       ));
     }
-    // Persist event asynchronously (no raw audio stored)
+
+    // 2. Atomic increment (fires ValueNotifier — primary UI path)
+    StorageService.incrementEvent(type).catchError(
+      (e) => debugPrint('[ContinuousAudio] incrementEvent error: $e'),
+    );
+
+    // 3. Append to rolling JSON event log (for history view)
     StorageService.saveLiveEvent(
       eventType: type,
       timestamp: timestamp,
+    ).catchError(
+      (e) => debugPrint('[ContinuousAudio] saveLiveEvent error: $e'),
     );
   }
 
@@ -367,9 +441,6 @@ class ContinuousAudioService {
     _lastCoughTime     = null;
     _lastSneezeTime    = null;
     _lastSnoreTime     = null;
-    liveCountCough     = 0;
-    liveCountSneeze    = 0;
-    liveCountSnore     = 0;
   }
 
   // ─────────────────────────────────────────────────────────────

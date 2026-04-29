@@ -65,7 +65,30 @@ class ContinuousAudioForegroundService : Service() {
         super.onDestroy()
     }
 
+    // ── onTaskRemoved — restart when app swiped from recents ──
+    // Part 2D: ensures detection continues even if the user kills the app.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        android.util.Log.d("ContinuousAudio", "onTaskRemoved — scheduling restart")
+
+        val restartIntent = Intent(applicationContext, ContinuousAudioForegroundService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            applicationContext,
+            1,
+            restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val alarmManager = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+        alarmManager.set(
+            android.app.AlarmManager.ELAPSED_REALTIME,
+            android.os.SystemClock.elapsedRealtime() + 1000L,
+            pendingIntent
+        )
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
 
     // ── Notification ─────────────────────────────────────────
 

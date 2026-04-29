@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../utils/local_storage.dart';
 import '../services/audio_service.dart';
 import '../services/passive_monitoring_service.dart';
@@ -87,14 +88,20 @@ class StorageService {
   static const String _keyTodaySteps    = 'today_steps';
   static const int    _maxPassiveDays   = 30;
 
-  // ── Live Monitoring (Day 8) ──
+  // ── Live Monitoring (Day 8 / Day 9) ──
   static const String _keyLiveEvents         = 'live_events_log';
   static const String _keyLiveDailyCough     = 'live_daily_cough';
   static const String _keyLiveDailySneeze    = 'live_daily_sneeze';
   static const String _keyLiveDailySnore     = 'live_daily_snore';
   static const String _keyLiveDailyDate      = 'live_daily_date';
   static const String _keyLiveMonitoringOn   = 'live_monitoring_enabled';
+  static const String _keyLastUpdated        = 'live_last_updated';
   static const int    _maxLiveEvents         = 200;
+
+  // ── Day 9: Reactive live-count notifier ─────────────────────────
+  // UI widgets listen to this and rebuild instantly on every detection.
+  static final ValueNotifier<Map<String, dynamic>> liveCountsNotifier =
+      ValueNotifier<Map<String, dynamic>>({'cough': 0, 'sneeze': 0, 'snore': 0, 'lastUpdated': ''});
 
   // ─────────────────────────────────────────
   // FLAT-KEY SAVE (called by DeviceTestScreen._finish)
@@ -213,6 +220,70 @@ class StorageService {
       LocalStorage.prefs.getBool(_keyLiveMonitoringOn) ?? false;
   static Future<void> setLiveMonitoringEnabled(bool val) =>
       LocalStorage.prefs.setBool(_keyLiveMonitoringOn, val);
+
+  // ── Last updated timestamp ────────────────────────────────────────
+  static String get lastUpdated =>
+      LocalStorage.prefs.getString(_keyLastUpdated) ?? '';
+
+  // ── Initialize notifier from persisted state (call at app start) ──
+  static void initLiveCountsNotifier() {
+    liveCountsNotifier.value = _currentLiveCounts();
+  }
+
+  // ── Day 9: Atomic increment — in-memory + SharedPreferences ─────
+  // Called by ContinuousAudioService on EVERY confirmed detection.
+  static Future<void> incrementEvent(String eventType) async {
+    debugPrint('[STORE] Incrementing $eventType...');
+
+    final todayKey   = _dateKey(DateTime.now());
+    final storedDate = LocalStorage.prefs.getString(_keyLiveDailyDate) ?? '';
+    if (storedDate != todayKey) {
+      await LocalStorage.prefs.setString(_keyLiveDailyDate, todayKey);
+      await LocalStorage.prefs.setInt(_keyLiveDailyCough,  0);
+      await LocalStorage.prefs.setInt(_keyLiveDailySneeze, 0);
+      await LocalStorage.prefs.setInt(_keyLiveDailySnore,  0);
+      debugPrint('[STORE] New day — daily counts reset');
+    }
+
+    switch (eventType) {
+      case 'cough':
+        final v = (LocalStorage.prefs.getInt(_keyLiveDailyCough) ?? 0) + 1;
+        await LocalStorage.prefs.setInt(_keyLiveDailyCough, v);
+        debugPrint('[STORE] cough count updated → $v');
+        break;
+      case 'sneeze':
+        final v = (LocalStorage.prefs.getInt(_keyLiveDailySneeze) ?? 0) + 1;
+        await LocalStorage.prefs.setInt(_keyLiveDailySneeze, v);
+        debugPrint('[STORE] sneeze count updated → $v');
+        break;
+      case 'snore':
+        final v = (LocalStorage.prefs.getInt(_keyLiveDailySnore) ?? 0) + 1;
+        await LocalStorage.prefs.setInt(_keyLiveDailySnore, v);
+        debugPrint('[STORE] snore count updated → $v');
+        break;
+    }
+
+    final ts = DateTime.now().toIso8601String();
+    await LocalStorage.prefs.setString(_keyLastUpdated, ts);
+
+    liveCountsNotifier.value = _currentLiveCounts();
+    debugPrint('[STORE] liveCountsNotifier fired');
+  }
+
+  // ── Internal helpers ─────────────────────────────────────────────
+  static Map<String, dynamic> _currentLiveCounts() {
+    final todayKey   = _dateKey(DateTime.now());
+    final storedDate = LocalStorage.prefs.getString(_keyLiveDailyDate) ?? '';
+    if (storedDate != todayKey) {
+      return {'cough': 0, 'sneeze': 0, 'snore': 0, 'lastUpdated': ''};
+    }
+    return {
+      'cough':       LocalStorage.prefs.getInt(_keyLiveDailyCough)  ?? 0,
+      'sneeze':      LocalStorage.prefs.getInt(_keyLiveDailySneeze) ?? 0,
+      'snore':       LocalStorage.prefs.getInt(_keyLiveDailySnore)  ?? 0,
+      'lastUpdated': LocalStorage.prefs.getString(_keyLastUpdated)  ?? '',
+    };
+  }
 
   // ─────────────────────────────────────────────────────────────
   // LIVE EVENTS (Day 8)

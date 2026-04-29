@@ -7,6 +7,7 @@ import '../screens/device_test_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/leaderboard_screen.dart';
 import '../screens/passive_monitoring_permission_screen.dart';
+import '../screens/monitoring_permission_screen.dart';
 import '../screens/settings_screen.dart';
 import '../utils/local_storage.dart';
 
@@ -43,6 +44,12 @@ GoRouter createRouter() {
         name: 'passive_permissions',
         builder: (context, state) =>
             const PassiveMonitoringPermissionScreen(),
+      ),
+      // Day 9: Monitoring permission onboarding (Part 4)
+      GoRoute(
+        path: '/monitoring_permission',
+        name: 'monitoring_permission',
+        builder: (context, state) => const MonitoringPermissionScreen(),
       ),
       GoRoute(
         path: '/device_test',

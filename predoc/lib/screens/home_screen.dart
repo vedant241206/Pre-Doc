@@ -34,22 +34,17 @@ class _HomeScreenState extends State<HomeScreen> {
   PassiveMonitoringData? _passive;
   bool _passiveLoading = false;
 
-  // ── Day 8: Live monitoring ──
-  // Use module-level singletons so HomeScreen and SettingsScreen
-  // share the SAME service instance (same mic stream, same event bus).
+  // ── Day 8/9: Live monitoring ──
   final ContinuousAudioService _continuousAudio = appContinuousAudio;
 
   bool _liveMonitoringOn = false;
-  int  _liveCough        = 0;
-  int  _liveSneeze       = 0;
-  int  _liveSnore        = 0;
 
-  // Live probability values for pulse indicator
+  // Day 9: Live probability values for pulse indicator (still from stream)
   double _liveCoughProb  = 0.0;
   double _liveSneezeProb = 0.0;
   double _liveSnoreProb  = 0.0;
 
-  StreamSubscription<LiveDetectionEvent>?  _eventSub;
+  // Day 9: Only keep probStream subscription — counts come from ValueNotifier
   StreamSubscription<Map<String, double>>? _probSub;
 
   static const _dashboard   = DashboardService();
@@ -71,34 +66,39 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NotificationService.maybeShowDailyBanner(context, _today);
       _refreshPassive();
+      // Day 9 Part 3: auto-start service if it was enabled before app closed
+      _autoStartIfEnabled();
     });
   }
 
   void _initLiveMonitoring() {
     _liveMonitoringOn = StorageService.liveMonitoringEnabled;
-    // Load persisted daily counts
-    final counts = StorageService.getDailyLiveCounts();
-    _liveCough  = counts['cough']  ?? 0;
-    _liveSneeze = counts['sneeze'] ?? 0;
-    _liveSnore  = counts['snore']  ?? 0;
+    // Day 9: Seed notifier from prefs (already done in main.dart, but re-init here
+    // in case the screen is rebuilt after returning from Settings)
+    StorageService.initLiveCountsNotifier();
 
     if (_liveMonitoringOn) {
-      _subscribeToStreams();
+      _subscribeToProbStream();
     }
   }
 
-  void _subscribeToStreams() {
-    _eventSub = _continuousAudio.eventStream.listen((event) {
-      if (!mounted) return;
-      setState(() {
-        switch (event.eventType) {
-          case 'cough':  _liveCough++;  break;
-          case 'sneeze': _liveSneeze++; break;
-          case 'snore':  _liveSnore++;  break;
-        }
-      });
-    });
+  // Day 9 Part 3: auto-start if monitoring was enabled and service is not running
+  Future<void> _autoStartIfEnabled() async {
+    if (!StorageService.liveMonitoringEnabled) return;
+    if (_continuousAudio.isRunning) return;
+    debugPrint('[HomeScreen] Auto-starting ContinuousAudioService...');
+    try {
+      if (!appModelService.isLoaded) await appModelService.loadModels();
+      await _continuousAudio.start();
+      _subscribeToProbStream();
+      if (mounted) setState(() => _liveMonitoringOn = true);
+    } catch (e) {
+      debugPrint('[HomeScreen] Auto-start failed: $e');
+    }
+  }
 
+  void _subscribeToProbStream() {
+    _probSub?.cancel();
     _probSub = _continuousAudio.probStream.listen((probs) {
       if (!mounted) return;
       setState(() {
@@ -111,7 +111,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _eventSub?.cancel();
     _probSub?.cancel();
     super.dispose();
   }
@@ -257,14 +256,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       MaterialPageRoute(
                           builder: (_) => const SettingsScreen()),
                     ).then((_) => setState(() {
-                      // Refresh live-monitoring state after returning
+                      // Refresh live-monitoring state after returning from settings
                       final wasOn = _liveMonitoringOn;
                       _liveMonitoringOn =
                           StorageService.liveMonitoringEnabled;
                       if (_liveMonitoringOn && !wasOn) {
-                        _subscribeToStreams();
+                        _subscribeToProbStream();
+                        _autoStartIfEnabled();
                       } else if (!_liveMonitoringOn && wasOn) {
-                        _eventSub?.cancel();
                         _probSub?.cancel();
                       }
                     })),
@@ -297,19 +296,24 @@ class _HomeScreenState extends State<HomeScreen> {
           // ── Live Monitoring Banner ─────────────────────────────
           if (_liveMonitoringOn) ...[
             const SizedBox(height: 12),
-            _LiveMonitoringBanner(
-              cough:      _liveCough,
-              sneeze:     _liveSneeze,
-              snore:      _liveSnore,
-              coughProb:  _liveCoughProb,
-              sneezeProb: _liveSneezeProb,
-              snoreProb:  _liveSnoreProb,
-              onStop: () async {
-                await _continuousAudio.stop();
-                await StorageService.setLiveMonitoringEnabled(false);
-                _eventSub?.cancel();
-                _probSub?.cancel();
-                if (mounted) setState(() => _liveMonitoringOn = false);
+            ValueListenableBuilder<Map<String, dynamic>>(
+              valueListenable: StorageService.liveCountsNotifier,
+              builder: (context, counts, _) {
+                return _LiveMonitoringBanner(
+                  cough:      counts['cough']  as int,
+                  sneeze:     counts['sneeze'] as int,
+                  snore:      counts['snore']  as int,
+                  lastUpdated: counts['lastUpdated'] as String,
+                  coughProb:  _liveCoughProb,
+                  sneezeProb: _liveSneezeProb,
+                  snoreProb:  _liveSnoreProb,
+                  onStop: () async {
+                    await _continuousAudio.stop();
+                    await StorageService.setLiveMonitoringEnabled(false);
+                    _probSub?.cancel();
+                    if (mounted) setState(() => _liveMonitoringOn = false);
+                  },
+                );
               },
             ),
           ],
@@ -367,61 +371,76 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: 'Complete your device test or enable Live Monitoring to see your health score.',
             ),
           ] else ...[
-            // Health score card (big, coloured)
-            Builder(
-              builder: (context) {
+            // Health score card using live counts from ValueNotifier
+            ValueListenableBuilder<Map<String, dynamic>>(
+              valueListenable: StorageService.liveCountsNotifier,
+              builder: (context, counts, _) {
+                final liveCough  = counts['cough']  as int;
+                final liveSneeze = counts['sneeze'] as int;
+                final liveSnore  = counts['snore']  as int;
+                final lastUpdated = counts['lastUpdated'] as String;
+
                 int displayScore = _today.score;
                 HealthColor displayColor = _today.color;
 
-                if (_liveMonitoringOn || _liveCough > 0 || _liveSneeze > 0 || _liveSnore > 0) {
-                  // Compute combined score including live events and passive sensor penalties
+                if (_liveMonitoringOn || liveCough > 0 || liveSneeze > 0 || liveSnore > 0) {
                   final insight = const InsightService().computeCombined(
-                    liveCoughCount: _today.coughCount + _liveCough,
-                    liveSneezeCount: _today.sneezeCount + _liveSneeze,
-                    liveSnoreCount: _today.snoreCount + _liveSnore,
-                    nightUsageRisk: _passive?.sleepRisk ?? false,
-                    screenTimeRisk: _passive?.screenRisk ?? false,
-                    lowActivity: _passive?.sedentary ?? false,
+                    liveCoughCount:  _today.coughCount + liveCough,
+                    liveSneezeCount: _today.sneezeCount + liveSneeze,
+                    liveSnoreCount:  _today.snoreCount + liveSnore,
+                    nightUsageRisk:  _passive?.sleepRisk ?? false,
+                    screenTimeRisk:  _passive?.screenRisk ?? false,
+                    lowActivity:     _passive?.sedentary ?? false,
                   );
                   displayScore = insight.score;
                   displayColor = insight.color;
                 }
 
-                return _HealthScoreCard(score: displayScore, color: displayColor);
+                return Column(children: [
+                  _HealthScoreCard(score: displayScore, color: displayColor),
+                  if (lastUpdated.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _buildLastUpdatedRow(lastUpdated),
+                  ],
+                ]);
               },
             ),
             const SizedBox(height: 14),
-            // Cough / Sneeze / Snore count row
-            // Live monitoring counts stack on top of session counts
-            Row(
-              children: [
-                Expanded(
-                    child: _CountCard(
-                  icon: '🤧',
-                  label: 'COUGH',
-                  count: _today.coughCount + _liveCough,
-                  accentColor: const Color(0xFFEF4444),
-                  isLive: _liveMonitoringOn,
-                )),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _CountCard(
-                  icon: '🤲',
-                  label: 'SNEEZE',
-                  count: _today.sneezeCount + _liveSneeze,
-                  accentColor: const Color(0xFFF59E0B),
-                  isLive: _liveMonitoringOn,
-                )),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _CountCard(
-                  icon: '😴',
-                  label: 'SNORE',
-                  count: _today.snoreCount + _liveSnore,
-                  accentColor: const Color(0xFF8B5CF6),
-                  isLive: _liveMonitoringOn,
-                )),
-              ],
+            // Cough / Sneeze / Snore count row from ValueNotifier
+            ValueListenableBuilder<Map<String, dynamic>>(
+              valueListenable: StorageService.liveCountsNotifier,
+              builder: (context, counts, _) {
+                final liveCough  = counts['cough']  as int;
+                final liveSneeze = counts['sneeze'] as int;
+                final liveSnore  = counts['snore']  as int;
+                return Row(
+                  children: [
+                    Expanded(child: _CountCard(
+                      icon: '🤧',
+                      label: 'COUGH',
+                      count: _today.coughCount + liveCough,
+                      accentColor: const Color(0xFFEF4444),
+                      isLive: _liveMonitoringOn,
+                    )),
+                    const SizedBox(width: 10),
+                    Expanded(child: _CountCard(
+                      icon: '🤲',
+                      label: 'SNEEZE',
+                      count: _today.sneezeCount + liveSneeze,
+                      accentColor: const Color(0xFFF59E0B),
+                      isLive: _liveMonitoringOn,
+                    )),
+                    const SizedBox(width: 10),
+                    Expanded(child: _CountCard(
+                      icon: '😴',
+                      label: 'SNORE',
+                      count: _today.snoreCount + liveSnore,
+                      accentColor: const Color(0xFF8B5CF6),
+                      isLive: _liveMonitoringOn,
+                    )),
+                  ],
+                );
+              },
             ),
           ],
         ],
@@ -429,8 +448,44 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ── Last updated row (Part 7) ──────────────────────────────
+  Widget _buildLastUpdatedRow(String isoTimestamp) {
+    if (isoTimestamp.isEmpty) return const SizedBox.shrink();
+    try {
+      final dt   = DateTime.parse(isoTimestamp).toLocal();
+      final diff = DateTime.now().difference(dt);
+      String label;
+      if (diff.inSeconds < 10) {
+        label = 'Updated just now';
+      } else if (diff.inSeconds < 60) {
+        label = 'Updated ${diff.inSeconds}s ago';
+      } else if (diff.inMinutes < 60) {
+        label = 'Updated ${diff.inMinutes}m ago';
+      } else {
+        label = 'Updated ${diff.inHours}h ago';
+      }
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          const Icon(Icons.sync_rounded, size: 11, color: AppColors.textMuted),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textMuted,
+              )),
+        ],
+      );
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────
   // WEEKLY SECTION
+
   // ─────────────────────────────────────────────────────────────
 
   Widget _buildWeeklySection() {
@@ -1477,6 +1532,7 @@ class _LiveMonitoringBanner extends StatelessWidget {
   final int    cough;
   final int    sneeze;
   final int    snore;
+  final String lastUpdated;
   final double coughProb;
   final double sneezeProb;
   final double snoreProb;
@@ -1486,6 +1542,7 @@ class _LiveMonitoringBanner extends StatelessWidget {
     required this.cough,
     required this.sneeze,
     required this.snore,
+    this.lastUpdated = '',
     required this.coughProb,
     required this.sneezeProb,
     required this.snoreProb,
@@ -1613,11 +1670,49 @@ class _LiveMonitoringBanner extends StatelessWidget {
           const SizedBox(height: 6),
           _ProbBar(label: 'Snore',  value: snoreProb,
               color: const Color(0xFFA78BFA)),
+
+          // ── Last updated timestamp (Part 7) ──
+          if (lastUpdated.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _lastUpdatedLabel(),
+          ],
         ],
       ),
     );
   }
+
+  Widget _lastUpdatedLabel() {
+    try {
+      final dt   = DateTime.parse(lastUpdated).toLocal();
+      final diff = DateTime.now().difference(dt);
+      final String label;
+      if (diff.inSeconds < 10) {
+        label = 'Updated just now';
+      } else if (diff.inSeconds < 60) {
+        label = 'Updated ${diff.inSeconds}s ago';
+      } else {
+        label = 'Updated ${diff.inMinutes}m ago';
+      }
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          const Icon(Icons.sync_rounded, size: 10, color: Colors.white54),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Colors.white54,
+              )),
+        ],
+      );
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+  }
 }
+
 
 // ── Live counter chip ─────────────────────────────────────────
 
