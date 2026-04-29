@@ -1,11 +1,12 @@
-// DashboardService — Day 6
+// DashboardService — Day 6 (extended Day 8)
 //
 // Pure, synchronous computation over stored SessionResult data.
 // Call once per app-open; cache the result in HomeScreen state.
-// No Flutter imports, no async, no side effects.
+// No async, no side effects.
 
 import 'storage_service.dart';
 import 'insight_service.dart';
+import 'passive_monitoring_service.dart';
 
 // ─────────────────────────────────────────────────────────────
 // DATA MODELS
@@ -91,7 +92,10 @@ class DashboardService {
 
   // ── TODAY SUMMARY ────────────────────────────────────────────
 
-  TodaySummary computeToday(List<SessionResult> sessions) {
+  TodaySummary computeToday(
+    List<SessionResult> sessions, {
+    PassiveMonitoringData? passive,
+  }) {
     final todayStr = _dateKey(DateTime.now());
     final todaySessions = sessions
         .where((s) => _dateKey(_parseDate(s.sessionStart)) == todayStr)
@@ -112,13 +116,16 @@ class DashboardService {
     // Latest session (sessions are most-recent-first from getSessions())
     final latest = todaySessions.first;
 
-    // Recompute score using summed counts + latest camera signals
+      // Recompute score using summed counts + latest camera signals + passive flags
     final insight = _insightSvc.compute(
       coughCount:   totalCough,
       sneezeCount:  totalSneeze,
       snoreCount:   totalSnore,
       faceDetected: latest.faceDetected,
       brightness:   latest.brightnessValue,
+      screenRisk:   passive?.screenRisk  ?? false,
+      sleepRisk:    passive?.sleepRisk   ?? false,
+      sedentary:    passive?.sedentary   ?? false,
     );
 
     return TodaySummary(
@@ -199,18 +206,24 @@ class DashboardService {
 
   // ── INSIGHTS ─────────────────────────────────────────────────
 
-  /// Returns top 2 insight messages based on today's aggregated data.
-  List<InsightMessage> computeInsights(TodaySummary today) {
-    if (!today.hasData) return [];
+  /// Returns top insight messages based on today's aggregated data + passive flags.
+  List<InsightMessage> computeInsights(
+    TodaySummary today, {
+    PassiveMonitoringData? passive,
+  }) {
+    if (!today.hasData && passive == null) return [];
     final result = _insightSvc.compute(
       coughCount:   today.coughCount,
       sneezeCount:  today.sneezeCount,
       snoreCount:   today.snoreCount,
       faceDetected: true, // don't penalize insights for camera quality
       brightness:   100.0,
+      screenRisk:   passive?.screenRisk ?? false,
+      sleepRisk:    passive?.sleepRisk  ?? false,
+      sedentary:    passive?.sedentary  ?? false,
     );
-    // Return at most 2 messages
-    return result.messages.take(2).toList();
+    // Return at most 3 messages (Day 8 adds passive ones)
+    return result.messages.take(3).toList();
   }
 
   // ── HELPERS ──────────────────────────────────────────────────

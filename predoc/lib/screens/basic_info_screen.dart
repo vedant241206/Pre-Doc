@@ -16,6 +16,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   // ── Progress bar ──
   late AnimationController _progressController;
   late Animation<double> _progressAnim;
+  // ── Name ──
+  final TextEditingController _nameCtrl = TextEditingController();
 
   // ── Gender ──
   String _selectedGender = '';
@@ -41,6 +43,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
 
   // ── Error map ──
   final Map<String, String?> _errors = {
+    'name':    null,
     'gender':  null,
     'dob':     null,
     'height':  null,
@@ -64,6 +67,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     );
 
     // Pre-fill from storage if existing
+    _nameCtrl.text = LocalStorage.userName;
     _selectedGender = LocalStorage.gender;
     final savedDob = LocalStorage.dob;
     if (savedDob.isNotEmpty) {
@@ -98,6 +102,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   @override
   void dispose() {
     _progressController.dispose();
+    _nameCtrl.dispose();
     _dobController.dispose();
     _heightCmCtrl.dispose();
     _heightFtCtrl.dispose();
@@ -131,6 +136,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   bool _validate() {
     bool ok = true;
     setState(() {
+      _errors['name'] =
+          _nameCtrl.text.trim().isEmpty ? 'Please enter your name' : null;
       _errors['gender'] =
           _selectedGender.isEmpty ? 'Please select your gender' : null;
       _errors['dob'] = _dob == null ? 'Please enter your date of birth' : null;
@@ -162,6 +169,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
       _errors['city'] = _cityCtrl.text.trim().isEmpty
           ? 'Please enter your city' : null;
 
+      if (_errors['name']   != null)  ok = false;
       if (_errors['gender'] != null)  ok = false;
       if (_errors['dob']    != null)  ok = false;
       if (_errors['country'] != null) ok = false;
@@ -174,6 +182,9 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   Future<void> _onSubmit() async {
     if (!_validate()) return;
     setState(() => _isLoading = true);
+
+    // Save name
+    await LocalStorage.setUserName(_nameCtrl.text.trim());
 
     // Save gender
     await LocalStorage.setGender(_selectedGender);
@@ -296,6 +307,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildNameSection(),
+                    const SizedBox(height: 28),
                     _buildGenderSection(),
                     const SizedBox(height: 28),
                     _buildDobSection(),
@@ -437,6 +450,67 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
           const SizedBox(height: 20),
         ],
       ),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // NAME SECTION
+  // ─────────────────────────────────────────────
+  Widget _buildNameSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('What is your name?'),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _errors['name'] != null
+                  ? AppColors.accentRed
+                  : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.person_rounded,
+                  color: AppColors.primary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _nameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) =>
+                      setState(() => _errors['name'] = null),
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textDark,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'e.g. Alex',
+                    hintStyle: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_errors['name'] != null) ...[
+          const SizedBox(height: 6),
+          _errorText(_errors['name']!),
+        ],
+      ],
     );
   }
 

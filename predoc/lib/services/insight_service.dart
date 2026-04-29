@@ -42,6 +42,10 @@ class InsightResult {
   final double snoreLoad;
   final double penalty;
   final List<InsightMessage> messages;
+  // Day 8: passive monitoring flags reflected in score
+  final bool screenRisk;
+  final bool sleepRisk;
+  final bool sedentary;
 
   const InsightResult({
     required this.score,
@@ -51,6 +55,9 @@ class InsightResult {
     required this.snoreLoad,
     required this.penalty,
     required this.messages,
+    this.screenRisk = false,
+    this.sleepRisk  = false,
+    this.sedentary  = false,
   });
 
   /// CSS-style color label for display
@@ -82,6 +89,11 @@ class InsightService {
   ///   [faceDetected] — whether the camera found a face
   ///   [brightness]   — average Y-channel brightness (0–255)
   ///
+  /// Day 8 optional passive monitoring parameters (all default false → no penalty):
+  ///   [screenRisk]   — screen time > 5h today
+  ///   [sleepRisk]    — night screen usage > 60 min
+  ///   [sedentary]    — steps < 2000 (very low activity)
+  ///
   /// Camera signals are quality checks only — not health predictions.
   InsightResult compute({
     required int    coughCount,
@@ -89,6 +101,10 @@ class InsightService {
     required int    snoreCount,
     required bool   faceDetected,
     required double brightness,
+    // Day 8 passive monitoring (optional — defaults keep existing behaviour)
+    bool screenRisk = false,
+    bool sleepRisk  = false,
+    bool sedentary  = false,
   }) {
     // ── Load factors ──
     final coughLoad  = (coughCount  / 12.0).clamp(0.0, 1.0);
@@ -106,7 +122,11 @@ class InsightService {
         (40.0 * coughLoad +
          25.0 * sneezeLoad +
          25.0 * snoreLoad  +
-         10.0 * penalty);
+         10.0 * penalty    +
+         // Day 8: passive monitoring penalties
+         (screenRisk ? 7.0  : 0.0) +
+         (sleepRisk  ? 10.0 : 0.0) +
+         (sedentary  ? 8.0  : 0.0));
     final score = raw.round().clamp(0, 100);
 
     // ── Color band ──
@@ -170,6 +190,31 @@ class InsightService {
       ));
     }
 
+    // ── Day 8: Behaviour insight messages ─────────────────────────
+    if (screenRisk) {
+      messages.add(const InsightMessage(
+        emoji: '📱',
+        title: 'Late-Night Screen Usage',
+        body:  'Excessive screen time detected. Try reducing usage after 10 PM for better sleep.',
+      ));
+    }
+
+    if (sleepRisk) {
+      messages.add(const InsightMessage(
+        emoji: '🌙',
+        title: 'Sleep Pattern Needs Improvement',
+        body:  'High phone usage at night detected. A consistent bedtime routine can improve sleep quality.',
+      ));
+    }
+
+    if (sedentary) {
+      messages.add(const InsightMessage(
+        emoji: '🧍',
+        title: 'Low Activity Today',
+        body:  'Very few steps recorded. Try to take short walks throughout the day.',
+      ));
+    }
+
     if (messages.isEmpty) {
       messages.add(const InsightMessage(
         emoji: '✅',
@@ -179,13 +224,126 @@ class InsightService {
     }
 
     return InsightResult(
-      score:      score,
+      score:       score,
+      color:       color,
+      coughLoad:   coughLoad,
+      sneezeLoad:  sneezeLoad,
+      snoreLoad:   snoreLoad,
+      penalty:     penalty,
+      messages:    messages,
+      // Day 8 passive flags
+      screenRisk:  screenRisk,
+      sleepRisk:   sleepRisk,
+      sedentary:   sedentary,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 8: COMBINED LIVE SCORE (continuous monitoring formula)
+  // ─────────────────────────────────────────────────────────────
+  //
+  // score = 100
+  // score -= cough_count  * 2
+  // score -= sneeze_count * 1.5
+  // score -= snore_count  * 2
+  // if night_usage > 60 min:  score -= 10
+  // if screen_time > 5h:      score -= 7
+  // if low_activity:          score -= 8
+  // score = clamp(score, 0, 100)
+
+  InsightResult computeCombined({
+    required int  liveCoughCount,
+    required int  liveSneezeCount,
+    required int  liveSnoreCount,
+    required bool nightUsageRisk,   // night_usage > 60 min
+    required bool screenTimeRisk,   // screen_time > 5h
+    required bool lowActivity,      // steps < 2000
+  }) {
+    double score = 100.0;
+
+    score -= liveCoughCount  * 2.0;
+    score -= liveSneezeCount * 1.5;
+    score -= liveSnoreCount  * 2.0;
+
+    if (nightUsageRisk) score -= 10.0;
+    if (screenTimeRisk) score -= 7.0;
+    if (lowActivity)    score -= 8.0;
+
+    final finalScore = score.round().clamp(0, 100);
+
+    HealthColor color;
+    if (finalScore >= 80) {
+      color = HealthColor.green;
+    } else if (finalScore >= 50) {
+      color = HealthColor.yellow;
+    } else {
+      color = HealthColor.red;
+    }
+
+    final messages = <InsightMessage>[];
+
+    if (liveCoughCount >= 3) {
+      messages.add(const InsightMessage(
+        emoji: '💧',
+        title: 'Coughing Detected',
+        body:  'Live monitoring detected repeated coughing. Stay hydrated.',
+      ));
+    }
+    if (liveSneezeCount >= 3) {
+      messages.add(const InsightMessage(
+        emoji: '🌿',
+        title: 'Frequent Sneezing',
+        body:  'Live monitoring picked up sneezing. Check for dust or allergens.',
+      ));
+    }
+    if (liveSnoreCount >= 2) {
+      messages.add(const InsightMessage(
+        emoji: '😴',
+        title: 'Snoring Detected',
+        body:  'Snoring was detected during monitoring. A regular sleep schedule may help.',
+      ));
+    }
+    if (nightUsageRisk) {
+      messages.add(const InsightMessage(
+        emoji: '🌙',
+        title: 'Late-Night Usage',
+        body:  'High phone use after 10 PM is affecting your sleep quality.',
+      ));
+    }
+    if (screenTimeRisk) {
+      messages.add(const InsightMessage(
+        emoji: '📱',
+        title: 'Screen Time High',
+        body:  'Over 5 hours of screen time today. Take regular eye breaks.',
+      ));
+    }
+    if (lowActivity) {
+      messages.add(const InsightMessage(
+        emoji: '🏃',
+        title: 'Move More',
+        body:  'Very low activity detected. Even a short walk helps.',
+      ));
+    }
+
+    if (messages.isEmpty) {
+      messages.add(const InsightMessage(
+        emoji: '✅',
+        title: 'All Clear',
+        body:  'No health signals detected during live monitoring.',
+      ));
+    }
+
+    return InsightResult(
+      score:      finalScore,
       color:      color,
-      coughLoad:  coughLoad,
-      sneezeLoad: sneezeLoad,
-      snoreLoad:  snoreLoad,
-      penalty:    penalty,
+      coughLoad:  (liveCoughCount  / 12.0).clamp(0.0, 1.0),
+      sneezeLoad: (liveSneezeCount / 8.0).clamp(0.0, 1.0),
+      snoreLoad:  (liveSnoreCount  / 6.0).clamp(0.0, 1.0),
+      penalty:    0.0,
       messages:   messages,
+      screenRisk: screenTimeRisk,
+      sleepRisk:  nightUsageRisk,
+      sedentary:  lowActivity,
     );
   }
 }

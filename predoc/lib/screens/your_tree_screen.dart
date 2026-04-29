@@ -303,16 +303,10 @@ class _YourTreeScreenState extends State<YourTreeScreen>
         child: Stack(
           alignment: Alignment.bottomCenter,
           children: [
-            // ── POT (always visible) ──
-            Positioned(
-              bottom: 8,
-              child: _TreePot(),
-            ),
-
             // ── STEM (streak >= 1) ──
             if (_streak >= 1)
               Positioned(
-                bottom: 56, // above pot
+                bottom: 24, // inside pot
                 child: AnimatedBuilder(
                   animation: _stemAnim,
                   builder: (_, __) {
@@ -343,7 +337,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
               AnimatedBuilder(
                 animation: _leaves1Anim,
                 builder: (_, child) => Positioned(
-                  bottom: 56 + stemMaxH * 0.35,
+                  bottom: 24 + stemMaxH * 0.35,
                   child: Transform.scale(
                     scale: _leaves1Anim.value,
                     child: child,
@@ -361,7 +355,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
               AnimatedBuilder(
                 animation: _leaves2Anim,
                 builder: (_, child) => Positioned(
-                  bottom: 56 + stemMaxH * 0.6,
+                  bottom: 24 + stemMaxH * 0.6,
                   child: Transform.scale(
                     scale: _leaves2Anim.value,
                     child: child,
@@ -379,7 +373,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
               AnimatedBuilder(
                 animation: _leaves3Anim,
                 builder: (_, child) => Positioned(
-                  bottom: 56 + stemMaxH * 0.75,
+                  bottom: 24 + stemMaxH * 0.75,
                   child: Transform.scale(
                     scale: _leaves3Anim.value,
                     child: child,
@@ -397,7 +391,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
               AnimatedBuilder(
                 animation: _crownAnim,
                 builder: (_, child) => Positioned(
-                  bottom: 56 + stemMaxH * 0.88,
+                  bottom: 24 + stemMaxH * 0.88,
                   child: Transform.scale(
                     scale: _crownAnim.value,
                     child: child,
@@ -408,6 +402,12 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                   shineAnim: _shineAnim,
                 ),
               ),
+
+            // ── POT (always visible) ──
+            Positioned(
+              bottom: 8,
+              child: _TreePot(),
+            ),
 
             // ── EMPTY SEED STATE (no streak) ──
             if (_streak == 0)

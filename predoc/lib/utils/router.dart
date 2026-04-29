@@ -6,7 +6,10 @@ import '../screens/basic_info_screen.dart';
 import '../screens/device_test_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/leaderboard_screen.dart';
+import '../screens/passive_monitoring_permission_screen.dart';
+import '../screens/settings_screen.dart';
 import '../utils/local_storage.dart';
+
 
 GoRouter createRouter() {
   final initialLocation = LocalStorage.getInitialRoute();
@@ -34,6 +37,13 @@ GoRouter createRouter() {
         name: 'basic_info',
         builder: (context, state) => const BasicInfoScreen(),
       ),
+      // Day 8: Passive monitoring onboarding (shown once after basic_info)
+      GoRoute(
+        path: '/passive_permissions',
+        name: 'passive_permissions',
+        builder: (context, state) =>
+            const PassiveMonitoringPermissionScreen(),
+      ),
       GoRoute(
         path: '/device_test',
         name: 'device_test',
@@ -48,6 +58,11 @@ GoRouter createRouter() {
         path: '/leaderboard',
         name: 'leaderboard',
         builder: (context, state) => const LeaderboardScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        name: 'settings',
+        builder: (context, state) => const SettingsScreen(),
       ),
     ],
   );

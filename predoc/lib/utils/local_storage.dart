@@ -29,6 +29,9 @@ class LocalStorage {
   static const String _keyHeightFtInch = 'height_ft_inch'; // stored as "5'11"
   static const String _keyCountry = 'user_country';
   static const String _keyCity    = 'user_city';
+  // Day 8: Passive monitoring onboarding
+  static const String _keyPassiveMonitoringDone = 'passive_monitoring_done';
+  static const String _keyUsageStatsEnabled     = 'usage_stats_enabled';
 
   // Onboarding
   static bool get onboardingDone => prefs.getBool(_keyOnboardingDone) ?? false;
@@ -48,6 +51,17 @@ class LocalStorage {
   // Basic Info setup
   static bool get basicInfoDone => prefs.getBool(_keyBasicInfoDone) ?? false;
   static Future<void> setBasicInfoDone() => prefs.setBool(_keyBasicInfoDone, true);
+
+  // Passive Monitoring onboarding (Day 8)
+  static bool get passiveMonitoringDone =>
+      prefs.getBool(_keyPassiveMonitoringDone) ?? false;
+  static Future<void> setPassiveMonitoringDone() =>
+      prefs.setBool(_keyPassiveMonitoringDone, true);
+
+  static bool get usageStatsEnabled =>
+      prefs.getBool(_keyUsageStatsEnabled) ?? false;
+  static Future<void> setUsageStatsEnabled(bool val) =>
+      prefs.setBool(_keyUsageStatsEnabled, val);
 
   static String get heightFtInch => prefs.getString(_keyHeightFtInch) ?? '';
   static Future<void> setHeightFtInch(String val) => prefs.setString(_keyHeightFtInch, val);
@@ -85,10 +99,11 @@ class LocalStorage {
 
   /// Returns the initial route based on saved state
   static String getInitialRoute() {
-    if (!onboardingDone) return '/intro';
+    if (!onboardingDone)  return '/intro';
     if (!authDone && !skipAuth) return '/auth';
     if (!permissionsDone) return '/permissions';
-    if (!basicInfoDone) return '/basic_info';
+    if (!basicInfoDone)   return '/basic_info';
+    if (!passiveMonitoringDone) return '/passive_permissions';
     return '/home';
   }
 }
