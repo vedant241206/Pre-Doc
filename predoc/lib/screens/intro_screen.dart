@@ -1,51 +1,50 @@
+// IntroScreen — Day 13 UI Upgrade
+// Layout: centered logo + "Predoc" + tagline at top
+//         full-height sapling animation (seed → sprout → plant) in middle
+//         "Get Started" CTA at bottom (appears after animation completes)
+// NO scale/fade on main animation. Button: radius 16, primary purple, shadow.
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sapling_animation.dart';
-import '../widgets/predoc_button.dart';
 import '../utils/local_storage.dart';
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
-
   @override
   State<IntroScreen> createState() => _IntroScreenState();
 }
 
 class _IntroScreenState extends State<IntroScreen>
     with SingleTickerProviderStateMixin {
+
   bool _animationComplete = false;
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnim;
-  late Animation<Offset> _slideAnim;
+
+  // Button slides up after animation finishes (slide-in only, no fade)
+  late AnimationController _btnCtrl;
+  late Animation<Offset>   _btnSlide;
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeIn);
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeOut));
+    _btnCtrl  = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 500));
+    _btnSlide = Tween<Offset>(begin: const Offset(0, 1.4), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _btnCtrl, curve: Curves.easeOut));
   }
 
   @override
-  void dispose() {
-    _fadeController.dispose();
-    super.dispose();
-  }
+  void dispose() { _btnCtrl.dispose(); super.dispose(); }
 
-  void _onAnimationComplete() {
+  void _onSaplingComplete() {
+    if (!mounted) return;
     setState(() => _animationComplete = true);
-    _fadeController.forward();
+    _btnCtrl.forward();
   }
 
-  Future<void> _onStartGrowing() async {
-    await LocalStorage.setOnboardingDone();
+  Future<void> _onGetStarted() async {
+    await LocalStorage.setSeenIntro();       // ← Day 13 flag
     if (mounted) context.go('/auth');
   }
 
@@ -54,184 +53,240 @@ class _IntroScreenState extends State<IntroScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            children: [
-              const SizedBox(height: 36),
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
 
-              // ── Logo Icon ──
-              Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(
+            // ── Logo + App Name ──────────────────────────────────────
+            Container(
+              width: 80, height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.18),
+                    blurRadius: 22, offset: const Offset(0, 8))],
+              ),
+              child: const Icon(Icons.health_and_safety_rounded,
+                  size: 42, color: AppColors.primary),
+            ),
+
+            const SizedBox(height: 16),
+
+            const Text(
+              'Predoc',
+              style: TextStyle(
+                fontFamily: 'Nunito', fontSize: 44,
+                fontWeight: FontWeight.w900,
+                color: AppColors.primaryDark,
+                letterSpacing: -0.5,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            // ── Tagline ───────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+              decoration: BoxDecoration(
                   color: AppColors.primaryLight,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.18),
-                      blurRadius: 20,
-                      offset: const Offset(0, 6),
-                    ),
+                  borderRadius: BorderRadius.circular(50)),
+              child: const Text(
+                'Detect early.  Treat early.',
+                style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primary,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── Sapling Animation (seed → sprout → plant) ────────────
+            Expanded(
+              child: Center(
+                child: SaplingAnimation(
+                  size: 260,
+                  onComplete: _onSaplingComplete,
+                ),
+              ),
+            ),
+
+            // ── Feature pills (appear after animation) ───────────────
+            AnimatedOpacity(
+              opacity: _animationComplete ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 400),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _featurePill(Icons.mic_rounded,          'Audio AI'),
+                    const SizedBox(width: 8),
+                    _featurePill(Icons.camera_alt_rounded,   'Vision'),
+                    const SizedBox(width: 8),
+                    _featurePill(Icons.lock_outline_rounded, 'Private'),
                   ],
                 ),
-                child: const Icon(
-                  Icons.health_and_safety_rounded,
-                  size: 44,
-                  color: AppColors.primary,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── Progress dots ──────────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _dot(active: true),
+                const SizedBox(width: 8),
+                _dot(active: false),
+                const SizedBox(width: 8),
+                _dot(active: false),
+                const SizedBox(width: 8),
+                _dot(active: false),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── CTA Button (slides up after animation) ────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: SlideTransition(
+                position: _btnSlide,
+                child: _GetStartedButton(
+                  enabled: _animationComplete,
+                  onTap: _onGetStarted,
                 ),
               ),
+            ),
 
-              const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-              // ── App Name ──
-              const Text(
-                'Predoc',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 42,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.primaryDark,
-                  letterSpacing: -0.5,
+            // ── Terms ─────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: const TextSpan(
+                  style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
+                      color: AppColors.textMuted),
+                  children: [
+                    TextSpan(text: 'By continuing you agree to the '),
+                    TextSpan(text: 'Terms of Service',
+                        style: TextStyle(color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline)),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'DETECT EARLY, TREAT EARLY',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textLight,
-                  letterSpacing: 2.0,
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── Sapling Animation ──
-              Expanded(
-                child: Center(
-                  child: SaplingAnimation(
-                    size: 260,
-                    onComplete: _onAnimationComplete,
-                  ),
-                ),
-              ),
-
-              // ── Tagline pill ──
-              AnimatedOpacity(
-                opacity: _animationComplete ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 400),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(50),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: AppColors.shadow,
-                        blurRadius: 12,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.park_rounded,
-                          color: AppColors.primary, size: 22),
-                      SizedBox(width: 10),
-                      Text(
-                        'Your health journey begins today',
-                        style: TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              // ── Progress dots ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _dot(active: true),
-                  const SizedBox(width: 8),
-                  _dot(active: false),
-                  const SizedBox(width: 8),
-                  _dot(active: false),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── CTA Button ──
-              FadeTransition(
-                opacity: _fadeAnim,
-                child: SlideTransition(
-                  position: _slideAnim,
-                  child: PredocButton(
-                    label: 'Start Growing',
-                    suffixIcon: Icons.arrow_forward_rounded,
-                    onTap: _animationComplete ? _onStartGrowing : null,
-                    backgroundColor: _animationComplete
-                        ? AppColors.primary
-                        : AppColors.primaryLight,
-                    textColor: _animationComplete ? Colors.white : AppColors.primary,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ── Terms ──
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: RichText(
-                  textAlign: TextAlign.center,
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                    ),
-                    children: [
-                      TextSpan(text: 'By continuing you agree to the '),
-                      TextSpan(
-                        text: 'Terms of Service',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _dot({required bool active}) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: active ? 28 : 10,
-      height: 10,
-      decoration: BoxDecoration(
+  Widget _featurePill(IconData icon, String label) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+        boxShadow: const [BoxShadow(
+            color: AppColors.shadow, blurRadius: 6, offset: Offset(0, 2))]),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 14, color: AppColors.primary),
+      const SizedBox(width: 5),
+      Text(label, style: const TextStyle(fontFamily: 'Nunito', fontSize: 12,
+          fontWeight: FontWeight.w800, color: AppColors.textDark)),
+    ]),
+  );
+
+  Widget _dot({required bool active}) => AnimatedContainer(
+    duration: const Duration(milliseconds: 300),
+    width: active ? 28 : 8, height: 8,
+    decoration: BoxDecoration(
         color: active ? AppColors.primary : AppColors.divider,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(4)),
+  );
+}
+
+// ── Get Started Button ─────────────────────────────────────────────────────
+
+class _GetStartedButton extends StatefulWidget {
+  final bool enabled;
+  final VoidCallback onTap;
+  const _GetStartedButton({required this.enabled, required this.onTap});
+
+  @override
+  State<_GetStartedButton> createState() => _GetStartedButtonState();
+}
+
+class _GetStartedButtonState extends State<_GetStartedButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pressCtrl;
+  late Animation<double>   _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _pressCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 120));
+    _scale = Tween<double>(begin: 1.0, end: 0.97)
+        .animate(CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() { _pressCtrl.dispose(); super.dispose(); }
+
+  Future<void> _handleTap() async {
+    if (!widget.enabled) return;
+    await _pressCtrl.forward();
+    await _pressCtrl.reverse();
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: BoxDecoration(
+            // Day 13 spec: radius 16, primary purple, soft shadow
+            color: widget.enabled ? AppColors.primary : AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(AppColors.radiusCard),
+            boxShadow: widget.enabled
+                ? [BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.30),
+                    blurRadius: 16, offset: const Offset(0, 6))]
+                : [],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                widget.enabled ? 'Get Started' : 'Growing your tree…',
+                style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: widget.enabled ? Colors.white : AppColors.primary,
+                ),
+              ),
+              if (widget.enabled) ...[
+                const SizedBox(width: 10),
+                const Icon(Icons.arrow_forward_rounded,
+                    color: Colors.white, size: 22),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

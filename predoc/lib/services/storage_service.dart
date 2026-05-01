@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../utils/local_storage.dart';
 import '../services/audio_service.dart';
 import '../services/passive_monitoring_service.dart';
+import '../services/insight_service.dart';
 
 
 // ─────────────────────────────────────────────────────────────
@@ -99,9 +100,28 @@ class StorageService {
   static const int    _maxLiveEvents         = 200;
 
   // ── Day 9: Reactive live-count notifier ─────────────────────────
-  // UI widgets listen to this and rebuild instantly on every detection.
   static final ValueNotifier<Map<String, dynamic>> liveCountsNotifier =
       ValueNotifier<Map<String, dynamic>>({'cough': 0, 'sneeze': 0, 'snore': 0, 'lastUpdated': ''});
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 10: PROFILE FIELDS
+  // ─────────────────────────────────────────────────────────────
+  static const String _keyUserAge           = 'user_age';
+  static const String _keyNotificationTime  = 'notification_time'; // "HH:mm"
+
+  // ── Day 10: Multi-condition flags ──────────────────────────
+  // Stored as individual booleans (a user can have multiple conditions)
+  static const String _keyCondAsthma        = 'cond_asthma';
+  static const String _keyCondFrequentCold  = 'cond_frequent_cold';
+  static const String _keyCondSleepIssues   = 'cond_sleep_issues';
+
+  // ── Day 10: 7-day daily snapshot log (for pattern detection) ──
+  static const String _keyDailySnapshots    = 'daily_snapshots';
+  static const int    _maxSnapshots         = 30;
+
+  // ── Day 11: Daily summary history ──
+  static const String _keyDailySummaries    = 'daily_summaries';
+  static const int    _maxSummaries         = 30;
 
   // ─────────────────────────────────────────
   // FLAT-KEY SAVE (called by DeviceTestScreen._finish)
@@ -130,7 +150,6 @@ class StorageService {
   // ─────────────────────────────────────────
 
   /// Append a full session to the local JSON log.
-  /// Keeps a rolling window of [_maxSessions] most recent sessions.
   static Future<void> saveSession(SessionResult session) async {
     final raw = LocalStorage.prefs.getString(_keySessionLogs) ?? '[]';
     List<dynamic> list;
@@ -142,7 +161,6 @@ class StorageService {
 
     list.add(session.toJson());
 
-    // Keep only the most recent N sessions
     if (list.length > _maxSessions) {
       list = list.sublist(list.length - _maxSessions);
     }
@@ -169,13 +187,10 @@ class StorageService {
   // CALIBRATION THRESHOLD OFFSETS (Day 5)
   // ─────────────────────────────────────────
 
-  /// Get current calibration offset for each class.
-  /// Default is 0.0 (no adjustment from base threshold).
   static double get coughOffset  => LocalStorage.prefs.getDouble(_keyCalibCough)   ?? 0.0;
   static double get sneezeOffset => LocalStorage.prefs.getDouble(_keyCalibSneeze)  ?? 0.0;
   static double get snoreOffset  => LocalStorage.prefs.getDouble(_keyCalibSnore)   ?? 0.0;
 
-  /// Increase threshold by one step (reduces false positives).
   static Future<void> raiseCoughThreshold()  async =>
       await LocalStorage.prefs.setDouble(_keyCalibCough,  (coughOffset + 0.03).clamp(-0.15, 0.15));
   static Future<void> raiseSneezeThreshold() async =>
@@ -183,7 +198,6 @@ class StorageService {
   static Future<void> raiseSnoreThreshold()  async =>
       await LocalStorage.prefs.setDouble(_keyCalibSnore,  (snoreOffset + 0.03).clamp(-0.15, 0.15));
 
-  /// Decrease threshold by one step (reduces missed events).
   static Future<void> lowerCoughThreshold()  async =>
       await LocalStorage.prefs.setDouble(_keyCalibCough,  (coughOffset - 0.03).clamp(-0.15, 0.15));
   static Future<void> lowerSneezeThreshold() async =>
@@ -191,7 +205,6 @@ class StorageService {
   static Future<void> lowerSnoreThreshold()  async =>
       await LocalStorage.prefs.setDouble(_keyCalibSnore,  (snoreOffset - 0.03).clamp(-0.15, 0.15));
 
-  /// Reset all calibration offsets to zero.
   static Future<void> resetCalibration() async {
     await LocalStorage.prefs.setDouble(_keyCalibCough,   0.0);
     await LocalStorage.prefs.setDouble(_keyCalibSneeze,  0.0);
@@ -210,7 +223,6 @@ class StorageService {
   static bool   get deviceTestDone  => LocalStorage.prefs.getBool(_keyDeviceTestDone)  ?? false;
   static String get faceEmbedding   => LocalStorage.prefs.getString(_keyFaceEmbedding) ?? '';
 
-  // Step count (updated externally — e.g., from a future step counter)
   static int    get todaySteps      => LocalStorage.prefs.getInt(_keyTodaySteps)       ?? 0;
   static Future<void> setTodaySteps(int steps) =>
       LocalStorage.prefs.setInt(_keyTodaySteps, steps);
@@ -230,8 +242,104 @@ class StorageService {
     liveCountsNotifier.value = _currentLiveCounts();
   }
 
-  // ── Day 9: Atomic increment — in-memory + SharedPreferences ─────
+  // ─────────────────────────────────────────────────────────────
+  // DAY 10: PROFILE FIELDS
+  // ─────────────────────────────────────────────────────────────
+
+  static int    get userAge            => LocalStorage.prefs.getInt(_keyUserAge)            ?? 0;
+  static Future<void> setUserAge(int age) =>
+      LocalStorage.prefs.setInt(_keyUserAge, age);
+
+  static String get notificationTime   => LocalStorage.prefs.getString(_keyNotificationTime) ?? '08:00';
+  static Future<void> setNotificationTime(String time) =>
+      LocalStorage.prefs.setString(_keyNotificationTime, time);
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 10: MULTI-CONDITION FLAGS
+  // ─────────────────────────────────────────────────────────────
+
+  static bool get condAsthma       => LocalStorage.prefs.getBool(_keyCondAsthma)       ?? false;
+  static bool get condFrequentCold => LocalStorage.prefs.getBool(_keyCondFrequentCold)  ?? false;
+  static bool get condSleepIssues  => LocalStorage.prefs.getBool(_keyCondSleepIssues)   ?? false;
+
+  static Future<void> setCondAsthma(bool val)       => LocalStorage.prefs.setBool(_keyCondAsthma, val);
+  static Future<void> setCondFrequentCold(bool val) => LocalStorage.prefs.setBool(_keyCondFrequentCold, val);
+  static Future<void> setCondSleepIssues(bool val)  => LocalStorage.prefs.setBool(_keyCondSleepIssues, val);
+
+  /// Convenience: returns true if user has no conditions selected
+  static bool get condNone => !condAsthma && !condFrequentCold && !condSleepIssues;
+
+  /// Convenience: set all conditions at once from a set of strings
+  static Future<void> setConditions({
+    required bool asthma,
+    required bool frequentCold,
+    required bool sleepIssues,
+  }) async {
+    await setCondAsthma(asthma);
+    await setCondFrequentCold(frequentCold);
+    await setCondSleepIssues(sleepIssues);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 10: 7-DAY DAILY SNAPSHOTS (for pattern detection)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Save or update today's daily health snapshot.
+  static Future<void> saveDailySnapshot(DailySnapshot snapshot) async {
+    final raw = LocalStorage.prefs.getString(_keyDailySnapshots) ?? '[]';
+    List<dynamic> list;
+    try {
+      list = jsonDecode(raw) as List<dynamic>;
+    } catch (_) {
+      list = [];
+    }
+
+    // Remove any existing entry for the same date
+    list.removeWhere((e) =>
+        (e as Map<String, dynamic>)['date_key'] == snapshot.dateKey);
+
+    list.add(snapshot.toJson());
+
+    // Keep only the most recent N snapshots
+    if (list.length > _maxSnapshots) {
+      list = list.sublist(list.length - _maxSnapshots);
+    }
+
+    await LocalStorage.prefs.setString(_keyDailySnapshots, jsonEncode(list));
+  }
+
+  /// Get last [days] daily snapshots, sorted oldest→newest.
+  static List<DailySnapshot> getDailySnapshots({int days = 7}) {
+    final raw = LocalStorage.prefs.getString(_keyDailySnapshots) ?? '[]';
+    try {
+      final now = DateTime.now();
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .map((e) => DailySnapshot.fromJson(e as Map<String, dynamic>))
+          .where((s) {
+            try {
+              final parts = s.dateKey.split('-');
+              final date = DateTime(
+                int.parse(parts[0]),
+                int.parse(parts[1]),
+                int.parse(parts[2]),
+              );
+              return now.difference(date).inDays < days;
+            } catch (_) {
+              return false;
+            }
+          })
+          .toList()
+        ..sort((a, b) => a.dateKey.compareTo(b.dateKey));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 9: Atomic increment — in-memory + SharedPreferences
   // Called by ContinuousAudioService on EVERY confirmed detection.
+  // ─────────────────────────────────────────────────────────────
   static Future<void> incrementEvent(String eventType) async {
     debugPrint('[STORE] Incrementing $eventType...');
 
@@ -287,16 +395,12 @@ class StorageService {
 
   // ─────────────────────────────────────────────────────────────
   // LIVE EVENTS (Day 8)
-  // Stores only: { timestamp, event_type, count_increment }
-  // Raw audio is NEVER stored.
   // ─────────────────────────────────────────────────────────────
 
-  /// Append a single confirmed live detection event and update daily totals.
   static Future<void> saveLiveEvent({
-    required String   eventType,    // 'cough' | 'sneeze' | 'snore'
+    required String   eventType,
     required DateTime timestamp,
   }) async {
-    // 1. Append to rolling event log
     final raw  = LocalStorage.prefs.getString(_keyLiveEvents) ?? '[]';
     List<dynamic> list;
     try { list = jsonDecode(raw) as List<dynamic>; } catch (_) { list = []; }
@@ -312,11 +416,9 @@ class StorageService {
     }
     await LocalStorage.prefs.setString(_keyLiveEvents, jsonEncode(list));
 
-    // 2. Update / reset daily totals
     final todayKey = _dateKey(DateTime.now());
     final storedDate = LocalStorage.prefs.getString(_keyLiveDailyDate) ?? '';
     if (storedDate != todayKey) {
-      // New day — reset counts
       await LocalStorage.prefs.setString(_keyLiveDailyDate,   todayKey);
       await LocalStorage.prefs.setInt(_keyLiveDailyCough,   0);
       await LocalStorage.prefs.setInt(_keyLiveDailySneeze,  0);
@@ -345,7 +447,6 @@ class StorageService {
     }
   }
 
-  /// Get today's cumulative live detection counts.
   static Map<String, int> getDailyLiveCounts() {
     final storedDate = LocalStorage.prefs.getString(_keyLiveDailyDate) ?? '';
     final todayKey   = _dateKey(DateTime.now());
@@ -359,7 +460,6 @@ class StorageService {
     };
   }
 
-  /// Get recent live events (most recent first).
   static List<Map<String, dynamic>> getRecentLiveEvents({int limit = 50}) {
     final raw  = LocalStorage.prefs.getString(_keyLiveEvents) ?? '[]';
     try {
@@ -378,8 +478,6 @@ class StorageService {
   // PASSIVE MONITORING (Day 8)
   // ─────────────────────────────────────
 
-  /// Save today's passive monitoring snapshot.
-  /// Keeps a rolling log of [_maxPassiveDays] days.
   static Future<void> savePassiveData(PassiveMonitoringData data) async {
     final raw = LocalStorage.prefs.getString(_keyPassiveLogs) ?? '[]';
     List<dynamic> list;
@@ -389,13 +487,11 @@ class StorageService {
       list = [];
     }
 
-    // Remove any existing entry for the same date
     list.removeWhere((e) =>
         (e as Map<String, dynamic>)['date_key'] == data.dateKey);
 
     list.add(data.toJson());
 
-    // Keep only the most recent N days
     if (list.length > _maxPassiveDays) {
       list = list.sublist(list.length - _maxPassiveDays);
     }
@@ -403,7 +499,6 @@ class StorageService {
     await LocalStorage.prefs.setString(_keyPassiveLogs, jsonEncode(list));
   }
 
-  /// Get today's passive monitoring data (or null if not yet recorded).
   static PassiveMonitoringData? getPassiveDataToday() {
     final todayKey = _dateKey(DateTime.now());
     final list = _getPassiveList();
@@ -416,7 +511,6 @@ class StorageService {
     return null;
   }
 
-  /// Get passive monitoring history for last [days] days (most recent first).
   static List<PassiveMonitoringData> getPassiveHistory(int days) {
     final now = DateTime.now();
     final list = _getPassiveList();
@@ -443,6 +537,63 @@ class StorageService {
     final raw = LocalStorage.prefs.getString(_keyPassiveLogs) ?? '[]';
     try {
       return jsonDecode(raw) as List<dynamic>;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 11: DAILY SUMMARY HISTORY
+  // ─────────────────────────────────────────────────────────────
+
+  /// Save today's human-readable summary string.
+  static Future<void> saveDailySummary(String summary) async {
+    final raw = LocalStorage.prefs.getString(_keyDailySummaries) ?? '[]';
+    List<dynamic> list;
+    try {
+      list = jsonDecode(raw) as List<dynamic>;
+    } catch (_) {
+      list = [];
+    }
+
+    final todayKey = _dateKey(DateTime.now());
+    // Replace existing entry for today if present
+    list.removeWhere((e) =>
+        (e as Map<String, dynamic>)['date_key'] == todayKey);
+    list.add({'date_key': todayKey, 'summary': summary});
+
+    if (list.length > _maxSummaries) {
+      list = list.sublist(list.length - _maxSummaries);
+    }
+    await LocalStorage.prefs.setString(_keyDailySummaries, jsonEncode(list));
+  }
+
+  /// Get last [days] daily summaries, sorted newest first.
+  static List<Map<String, String>> getDailySummaries({int days = 7}) {
+    final raw = LocalStorage.prefs.getString(_keyDailySummaries) ?? '[]';
+    try {
+      final now  = DateTime.now();
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .map((e) => Map<String, String>.from(
+              (e as Map<String, dynamic>).map(
+                (k, v) => MapEntry(k, v.toString()))))
+          .where((m) {
+            try {
+              final parts = m['date_key']!.split('-');
+              final date  = DateTime(
+                int.parse(parts[0]),
+                int.parse(parts[1]),
+                int.parse(parts[2]),
+              );
+              return now.difference(date).inDays < days;
+            } catch (_) {
+              return false;
+            }
+          })
+          .toList()
+          .reversed
+          .toList();
     } catch (_) {
       return [];
     }

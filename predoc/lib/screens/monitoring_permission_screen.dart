@@ -125,7 +125,7 @@ class _MonitoringPermissionScreenState
                         width: 120,
                         height: 120,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
+                          gradient: const LinearGradient(
                             colors: [
                               AppColors.primary,
                               AppColors.primaryDark,
@@ -167,7 +167,7 @@ class _MonitoringPermissionScreenState
                     const SizedBox(height: 12),
 
                     // ── Explanation ──────────────────────────────────
-                    Text(
+                    const Text(
                       'This app continuously monitors audio to detect early health signals like coughing, sneezing, and snoring.\n\nAll data stays on your device — nothing is uploaded or shared.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -182,30 +182,30 @@ class _MonitoringPermissionScreenState
                     const SizedBox(height: 36),
 
                     // ── Feature cards ────────────────────────────────
-                    _FeatureCard(
+                    const _FeatureCard(
                       icon: Icons.lock_outline_rounded,
-                      iconColor: const Color(0xFF10B981),
+                      iconColor: Color(0xFF10B981),
                       title: 'Fully Private',
                       subtitle: 'No audio is ever recorded or stored. Only event counts.',
                     ),
                     const SizedBox(height: 12),
-                    _FeatureCard(
+                    const _FeatureCard(
                       icon: Icons.notifications_active_outlined,
-                      iconColor: const Color(0xFF6366F1),
+                      iconColor: Color(0xFF6366F1),
                       title: 'Transparent',
                       subtitle: 'A persistent notification is always shown when monitoring is active.',
                     ),
                     const SizedBox(height: 12),
-                    _FeatureCard(
+                    const _FeatureCard(
                       icon: Icons.battery_saver_outlined,
-                      iconColor: const Color(0xFFF59E0B),
+                      iconColor: Color(0xFFF59E0B),
                       title: 'Battery Efficient',
                       subtitle: 'Inference runs every 2 seconds — minimal CPU and battery impact.',
                     ),
                     const SizedBox(height: 12),
-                    _FeatureCard(
+                    const _FeatureCard(
                       icon: Icons.power_settings_new_rounded,
-                      iconColor: const Color(0xFFEF4444),
+                      iconColor: Color(0xFFEF4444),
                       title: 'Stop Anytime',
                       subtitle: 'You can disable monitoring at any time from Settings.',
                     ),
@@ -264,7 +264,7 @@ class _MonitoringPermissionScreenState
                   const SizedBox(height: 14),
                   TextButton(
                     onPressed: _loading ? null : _onSkip,
-                    child: Text(
+                    child: const Text(
                       'Skip for now',
                       style: TextStyle(
                         fontFamily: 'Nunito',

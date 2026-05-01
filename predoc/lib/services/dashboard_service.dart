@@ -1,8 +1,10 @@
-// DashboardService — Day 6 (extended Day 8)
+// DashboardService — Day 10
 //
-// Pure, synchronous computation over stored SessionResult data.
-// Call once per app-open; cache the result in HomeScreen state.
-// No async, no side effects.
+// Extended with:
+//   • Pattern detection (7-day DailySnapshot analysis)
+//   • Severity level in TodaySummary
+//   • Day 10 strict health score formula via InsightService
+//   • Auto-save DailySnapshot on each compute pass
 
 import 'storage_service.dart';
 import 'insight_service.dart';
@@ -15,27 +17,36 @@ import 'passive_monitoring_service.dart';
 class TodaySummary {
   final int score;
   final HealthColor color;
+  final HealthSeverity severity;
   final int coughCount;
   final int sneezeCount;
   final int snoreCount;
   final bool hasData;
+  final List<InsightMessage> messages;
+  final List<HealthPattern> patterns;
 
   const TodaySummary({
     required this.score,
     required this.color,
+    required this.severity,
     required this.coughCount,
     required this.sneezeCount,
     required this.snoreCount,
     required this.hasData,
+    this.messages = const [],
+    this.patterns = const [],
   });
 
   static const TodaySummary empty = TodaySummary(
-    score: 0,
-    color: HealthColor.red,
-    coughCount: 0,
+    score:       0,
+    color:       HealthColor.red,
+    severity:    HealthSeverity.risk,
+    coughCount:  0,
     sneezeCount: 0,
-    snoreCount: 0,
-    hasData: false,
+    snoreCount:  0,
+    hasData:     false,
+    messages:    [],
+    patterns:    [],
   );
 }
 
@@ -95,15 +106,17 @@ class DashboardService {
   TodaySummary computeToday(
     List<SessionResult> sessions, {
     PassiveMonitoringData? passive,
+    // Day 10: live counts included
+    int liveCough  = 0,
+    int liveSneeze = 0,
+    int liveSnore  = 0,
   }) {
     final todayStr = _dateKey(DateTime.now());
     final todaySessions = sessions
         .where((s) => _dateKey(_parseDate(s.sessionStart)) == todayStr)
         .toList();
 
-    if (todaySessions.isEmpty) return TodaySummary.empty;
-
-    // Sum counts, use latest session for camera data
+    // Aggregate session counts
     int totalCough  = 0;
     int totalSneeze = 0;
     int totalSnore  = 0;
@@ -113,28 +126,52 @@ class DashboardService {
       totalSnore  += s.snoreCount;
     }
 
-    // Latest session (sessions are most-recent-first from getSessions())
-    final latest = todaySessions.first;
+    // Add live monitoring counts
+    totalCough  += liveCough;
+    totalSneeze += liveSneeze;
+    totalSnore  += liveSnore;
 
-      // Recompute score using summed counts + latest camera signals + passive flags
-    final insight = _insightSvc.compute(
-      coughCount:   totalCough,
-      sneezeCount:  totalSneeze,
-      snoreCount:   totalSnore,
-      faceDetected: latest.faceDetected,
-      brightness:   latest.brightnessValue,
-      screenRisk:   passive?.screenRisk  ?? false,
-      sleepRisk:    passive?.sleepRisk   ?? false,
-      sedentary:    passive?.sedentary   ?? false,
+    final bool hasAnyData = todaySessions.isNotEmpty ||
+        liveCough > 0 || liveSneeze > 0 || liveSnore > 0;
+
+    if (!hasAnyData && passive == null) return TodaySummary.empty;
+
+    // Load 7-day snapshots for pattern detection
+    final snapshots  = StorageService.getDailySnapshots(days: 7);
+    final patterns   = _insightSvc.detectPatterns(snapshots);
+
+    // Compute score using Day 10 strict formula
+    final insight = _insightSvc.computeCombined(
+      liveCoughCount:  totalCough,
+      liveSneezeCount: totalSneeze,
+      liveSnoreCount:  totalSnore,
+      nightUsageRisk:  passive?.sleepRisk   ?? false,
+      screenTimeRisk:  passive?.screenRisk  ?? false,
+      lowActivity:     passive?.sedentary   ?? false,
+      patterns:        patterns,
+    );
+
+    // Auto-save today's snapshot for future pattern detection
+    _saveTodaySnapshot(
+      cough:          totalCough,
+      sneeze:         totalSneeze,
+      snore:          totalSnore,
+      score:          insight.score,
+      nightUsageRisk: passive?.sleepRisk  ?? false,
+      screenTimeRisk: passive?.screenRisk ?? false,
+      lowActivity:    passive?.sedentary  ?? false,
     );
 
     return TodaySummary(
       score:       insight.score,
       color:       insight.color,
+      severity:    insight.severity,
       coughCount:  totalCough,
       sneezeCount: totalSneeze,
       snoreCount:  totalSnore,
-      hasData:     true,
+      hasData:     hasAnyData,
+      messages:    insight.messages,
+      patterns:    patterns,
     );
   }
 
@@ -143,13 +180,12 @@ class DashboardService {
   WeeklySummary computeWeekly(List<SessionResult> sessions) {
     final now = DateTime.now();
 
-    // Build a map: dateKey → aggregated counts + score for that day
     final Map<String, _AggDay> dayMap = {};
 
     for (final s in sessions) {
       final d = _parseDate(s.sessionStart);
       final diff = now.difference(d).inDays;
-      if (diff < 0 || diff >= 7) continue; // only last 7 days
+      if (diff < 0 || diff >= 7) continue;
 
       final key = _dateKey(d);
       dayMap.putIfAbsent(key, () => _AggDay());
@@ -164,7 +200,7 @@ class DashboardService {
       final day = now.subtract(Duration(days: i));
       final key = _dateKey(day);
       final agg = dayMap[key];
-      final label = _dayLabels[day.weekday - 1]; // weekday: 1=Mon…7=Sun
+      final label = _dayLabels[day.weekday - 1];
       bars.add(DayBar(
         label:   label,
         fill:    agg != null ? (agg.avgScore / 100.0).clamp(0.0, 1.0) : 0.0,
@@ -172,7 +208,6 @@ class DashboardService {
       ));
     }
 
-    // Weekly totals
     int tCough = 0, tSneeze = 0, tSnore = 0;
     double scoreSum = 0;
     int scoreDays   = 0;
@@ -185,10 +220,8 @@ class DashboardService {
     }
     final avgScore = scoreDays > 0 ? scoreSum / scoreDays : 0.0;
 
-    // Trend: compare last 3 days vs previous 3 days
     final String trend = _computeTrend(dayMap, now);
 
-    // Date range label
     final startDay = now.subtract(const Duration(days: 6));
     final dateRange = '${_monthDay(startDay)} – ${_monthDay(now)}';
 
@@ -206,27 +239,59 @@ class DashboardService {
 
   // ── INSIGHTS ─────────────────────────────────────────────────
 
-  /// Returns top insight messages based on today's aggregated data + passive flags.
   List<InsightMessage> computeInsights(
     TodaySummary today, {
     PassiveMonitoringData? passive,
   }) {
     if (!today.hasData && passive == null) return [];
-    final result = _insightSvc.compute(
-      coughCount:   today.coughCount,
-      sneezeCount:  today.sneezeCount,
-      snoreCount:   today.snoreCount,
-      faceDetected: true, // don't penalize insights for camera quality
-      brightness:   100.0,
-      screenRisk:   passive?.screenRisk ?? false,
-      sleepRisk:    passive?.sleepRisk  ?? false,
-      sedentary:    passive?.sedentary  ?? false,
+    // Return messages from already-computed TodaySummary (Day 10 format)
+    if (today.messages.isNotEmpty) return today.messages.take(4).toList();
+
+    // Fallback: recompute
+    final result = _insightSvc.computeCombined(
+      liveCoughCount:  today.coughCount,
+      liveSneezeCount: today.sneezeCount,
+      liveSnoreCount:  today.snoreCount,
+      nightUsageRisk:  passive?.sleepRisk ?? false,
+      screenTimeRisk:  passive?.screenRisk ?? false,
+      lowActivity:     passive?.sedentary  ?? false,
     );
-    // Return at most 3 messages (Day 8 adds passive ones)
-    return result.messages.take(3).toList();
+    return result.messages.take(4).toList();
+  }
+
+  // ── PATTERN DETECTION (Day 10) ───────────────────────────────
+
+  List<HealthPattern> computePatterns() {
+    final snapshots = StorageService.getDailySnapshots(days: 7);
+    return _insightSvc.detectPatterns(snapshots);
   }
 
   // ── HELPERS ──────────────────────────────────────────────────
+
+  /// Save today's snapshot to persistent storage for pattern detection.
+  void _saveTodaySnapshot({
+    required int  cough,
+    required int  sneeze,
+    required int  snore,
+    required int  score,
+    required bool nightUsageRisk,
+    required bool screenTimeRisk,
+    required bool lowActivity,
+  }) {
+    final snapshot = DailySnapshot(
+      dateKey:       _dateKey(DateTime.now()),
+      coughCount:    cough,
+      sneezeCount:   sneeze,
+      snoreCount:    snore,
+      stepCount:     StorageService.todaySteps,
+      healthScore:   score,
+      nightUsageRisk: nightUsageRisk,
+      screenTimeRisk: screenTimeRisk,
+      lowActivity:   lowActivity,
+    );
+    // Fire-and-forget (sync not critical here)
+    StorageService.saveDailySnapshot(snapshot);
+  }
 
   String _computeTrend(Map<String, _AggDay> dayMap, DateTime now) {
     double last3  = 0, prev3 = 0;
@@ -281,12 +346,13 @@ class _AggDay {
     totalCough  += s.coughCount;
     totalSneeze += s.sneezeCount;
     totalSnore  += s.snoreCount;
-    final insight = _insightSvc.compute(
-      coughCount:   s.coughCount,
-      sneezeCount:  s.sneezeCount,
-      snoreCount:   s.snoreCount,
-      faceDetected: s.faceDetected,
-      brightness:   s.brightnessValue,
+    final insight = _insightSvc.computeCombined(
+      liveCoughCount:  s.coughCount,
+      liveSneezeCount: s.sneezeCount,
+      liveSnoreCount:  s.snoreCount,
+      nightUsageRisk:  false,
+      screenTimeRisk:  false,
+      lowActivity:     false,
     );
     scoreSum += insight.score;
     count++;

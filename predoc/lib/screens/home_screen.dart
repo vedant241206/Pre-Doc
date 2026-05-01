@@ -7,13 +7,14 @@ import '../services/notification_service.dart';
 import '../services/insight_service.dart';
 import '../services/passive_monitoring_service.dart';
 import '../services/continuous_audio_service.dart';
+import '../services/habit_service.dart';
 import '../app_services.dart';
 import 'your_tree_screen.dart';
 import 'ask_ai_screen.dart';
 import 'med_checkup_screen.dart';
 import 'nearby_docs_screen.dart';
 import 'settings_screen.dart';
-// ignore_for_file: prefer_const_constructors
+// ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,6 +30,9 @@ class _HomeScreenState extends State<HomeScreen> {
   late TodaySummary  _today;
   late WeeklySummary _weekly;
   late List<InsightMessage> _insights;
+
+  // ── Day 11: Habit report ──
+  HabitReport _habitReport = HabitReport.empty;
 
   // ── Day 8: Passive monitoring ──
   PassiveMonitoringData? _passive;
@@ -49,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static const _dashboard   = DashboardService();
   static const _passiveSvc  = PassiveMonitoringService();
+  static const _habitSvc    = HabitService();
 
   final List<_NavItem> _navItems = [
     _NavItem(icon: Icons.home_rounded,             label: 'HOME'),
@@ -123,6 +128,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _today    = _dashboard.computeToday(sessions, passive: _passive);
     _weekly   = _dashboard.computeWeekly(sessions);
     _insights = _dashboard.computeInsights(_today, passive: _passive);
+
+    // Day 11: Compute habit report + persist daily summary
+    _habitReport = _habitSvc.compute(
+      todayScore:  _today.score,
+      todayCough:  _today.coughCount,
+      todaySneeze: _today.sneezeCount,
+      todaySnore:  _today.snoreCount,
+      passive:     _passive,
+    );
+    if (_habitReport.dailySummary.isNotEmpty) {
+      StorageService.saveDailySummary(_habitReport.dailySummary);
+    }
   }
 
   /// Async passive monitoring refresh — runs native channel calls.
@@ -140,8 +157,30 @@ class _HomeScreenState extends State<HomeScreen> {
           final sessions = StorageService.getSessions();
           _today    = _dashboard.computeToday(sessions, passive: data);
           _insights = _dashboard.computeInsights(_today, passive: data);
+
+          // Day 11: Recompute habits with fresh passive data
+          _habitReport = _habitSvc.compute(
+            todayScore:  _today.score,
+            todayCough:  _today.coughCount,
+            todaySneeze: _today.sneezeCount,
+            todaySnore:  _today.snoreCount,
+            passive:     data,
+          );
+          if (_habitReport.dailySummary.isNotEmpty) {
+            StorageService.saveDailySummary(_habitReport.dailySummary);
+          }
           _passiveLoading = false;
         });
+      }
+      // Day 11: Fire smart alert after fresh passive data
+      if (mounted) {
+        NotificationService.maybeShowSmartAlert(
+          context,
+          score:      _today.score,
+          coughCount: _today.coughCount,
+          snoreCount: _today.snoreCount,
+          passive:    data,
+        );
       }
     } catch (_) {
       if (mounted) setState(() => _passiveLoading = false);
@@ -159,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: const Color(0xFFFAFAFA),
       body: SafeArea(
         child: IndexedStack(
           index: _selectedTab,
@@ -188,8 +227,14 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverToBoxAdapter(child: _buildTodaySection()),
           SliverToBoxAdapter(child: _buildWeeklySection()),
           SliverToBoxAdapter(child: _buildInsightsSection()),
+          // Day 10: Detected patterns section
+          SliverToBoxAdapter(child: _buildPatternsSection()),
           // Day 8: Behaviour Insights section
           SliverToBoxAdapter(child: _buildBehaviorInsightsSection()),
+          // Day 11: Habits, Predictions, Suggestions
+          SliverToBoxAdapter(child: _buildHabitsSection()),
+          SliverToBoxAdapter(child: _buildPredictionsSection()),
+          SliverToBoxAdapter(child: _buildSuggestionsSection()),
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
@@ -382,6 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 int displayScore = _today.score;
                 HealthColor displayColor = _today.color;
+                HealthSeverity displaySeverity = _today.severity;
 
                 if (_liveMonitoringOn || liveCough > 0 || liveSneeze > 0 || liveSnore > 0) {
                   final insight = const InsightService().computeCombined(
@@ -394,10 +440,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   displayScore = insight.score;
                   displayColor = insight.color;
+                  displaySeverity = insight.severity;
                 }
+                // ignore unused var — used below
 
                 return Column(children: [
-                  _HealthScoreCard(score: displayScore, color: displayColor),
+                  _HealthScoreCard(score: displayScore, color: displayColor, severity: displaySeverity),
                   if (lastUpdated.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     _buildLastUpdatedRow(lastUpdated),
@@ -645,6 +693,81 @@ class _HomeScreenState extends State<HomeScreen> {
               if (i > 0) const SizedBox(height: 10),
               _InsightCard(msg: _insights[i]),
             ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // PATTERNS SECTION (Day 10)
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildPatternsSection() {
+    final patterns = _today.patterns.isNotEmpty
+        ? _today.patterns
+        : _dashboard.computePatterns();
+
+    if (patterns.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Detected Patterns',
+                  style: TextStyle(fontFamily: 'Nunito', fontSize: 20,
+                      fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(50),
+                ),
+                child: Text('${patterns.length}',
+                    style: const TextStyle(fontFamily: 'Nunito', fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFDC2626))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final p in patterns) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFFECACA), width: 1.5),
+                boxShadow: const [BoxShadow(
+                    color: AppColors.shadow, blurRadius: 8,
+                    offset: Offset(0, 3))],
+              ),
+              child: Row(
+                children: [
+                  Text(p.emoji, style: const TextStyle(fontSize: 24)),
+                  const SizedBox(width: 14),
+                  Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(p.label, style: const TextStyle(
+                          fontFamily: 'Nunito', fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF991B1B))),
+                      const SizedBox(height: 2),
+                      Text(p.description, style: const TextStyle(
+                          fontFamily: 'Nunito', fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFB91C1C), height: 1.4)),
+                    ],
+                  )),
+                ],
+              ),
+            ),
           ],
         ],
       ),
@@ -934,6 +1057,132 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // DAY 11: YOUR HABITS SECTION
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildHabitsSection() {
+    if (!_habitReport.hasEnoughData && _habitReport.habits.isEmpty) {
+      // Show placeholder only if we at least have a daily summary
+      if (_habitReport.dailySummary.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your Habits',
+                style: TextStyle(fontFamily: 'Nunito', fontSize: 20,
+                    fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            const SizedBox(height: 12),
+            _EmptyStateCard(
+              icon: Icons.track_changes_rounded,
+              title: 'Building your habit profile',
+              subtitle: 'Habit detection needs at least 3 days of data. Keep using Predoc!',
+            ),
+          ],
+        ),
+      );
+    }
+    if (_habitReport.habits.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Your Habits',
+                style: TextStyle(fontFamily: 'Nunito', fontSize: 20,
+                    fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: Text('${_habitReport.habits.length}',
+                  style: const TextStyle(fontFamily: 'Nunito', fontSize: 11,
+                      fontWeight: FontWeight.w800, color: Color(0xFFDC2626))),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          for (final h in _habitReport.habits) ...[
+            _HabitCard(habit: h),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 11: PREDICTIONS SECTION
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildPredictionsSection() {
+    if (_habitReport.predictions.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Predictions',
+              style: TextStyle(fontFamily: 'Nunito', fontSize: 20,
+                  fontWeight: FontWeight.w800, color: AppColors.textDark)),
+          const SizedBox(height: 4),
+          const Text('Based on your recent 3-day trend',
+              style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
+                  fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+          const SizedBox(height: 12),
+          for (final p in _habitReport.predictions) ...[
+            _PredictionCard(warning: p),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DAY 11: SUGGESTIONS SECTION
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildSuggestionsSection() {
+    if (_habitReport.suggestions.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Suggested Actions',
+              style: TextStyle(fontFamily: 'Nunito', fontSize: 20,
+                  fontWeight: FontWeight.w800, color: AppColors.textDark)),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [BoxShadow(
+                  color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 3))],
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < _habitReport.suggestions.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, color: AppColors.divider),
+                  _SuggestionRow(suggestion: _habitReport.suggestions[i]),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // BOTTOM NAV (unchanged from Day 1–5)
   // ─────────────────────────────────────────────────────────────
 
@@ -1007,28 +1256,63 @@ class _NavItem {
 }
 
 // ─────────────────────────────────────────────────────────────
-// HEALTH SCORE CARD — coloured by band
+// HEALTH SCORE CARD — Day 12: animated progress ring
 // ─────────────────────────────────────────────────────────────
 
-class _HealthScoreCard extends StatelessWidget {
+class _HealthScoreCard extends StatefulWidget {
   final int score;
   final HealthColor color;
+  final HealthSeverity severity;
 
-  const _HealthScoreCard({required this.score, required this.color});
+  const _HealthScoreCard({
+    required this.score,
+    required this.color,
+    this.severity = HealthSeverity.moderate,
+  });
 
-  Color get _bg {
-    switch (color) {
-      case HealthColor.green:  return const Color(0xFF22C55E);
-      case HealthColor.yellow: return const Color(0xFFF59E0B);
-      case HealthColor.red:    return const Color(0xFFEF4444);
+  @override
+  State<_HealthScoreCard> createState() => _HealthScoreCardState();
+}
+
+class _HealthScoreCardState extends State<_HealthScoreCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double>   _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1200));
+    _progress = Tween<double>(begin: 0.0, end: widget.score / 100.0)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  Color get _ringColor {
+    switch (widget.color) {
+      case HealthColor.green:  return AppColors.good;
+      case HealthColor.yellow: return AppColors.moderate;
+      case HealthColor.red:    return AppColors.risk;
     }
   }
 
   String get _label {
-    switch (color) {
-      case HealthColor.green:  return 'Great — keep it up! 🎉';
-      case HealthColor.yellow: return 'Fair — room to improve';
-      case HealthColor.red:    return 'Needs attention ⚠️';
+    switch (widget.severity) {
+      case HealthSeverity.good:     return 'Good — keep it up! 🎉';
+      case HealthSeverity.moderate: return 'Moderate — room to improve';
+      case HealthSeverity.risk:     return 'At Risk ⚠️ — needs attention';
+    }
+  }
+
+  String get _severityTag {
+    switch (widget.severity) {
+      case HealthSeverity.good:     return '✅ GOOD';
+      case HealthSeverity.moderate: return '⚠️ MODERATE';
+      case HealthSeverity.risk:     return '🔴 AT RISK';
     }
   }
 
@@ -1036,75 +1320,73 @@ class _HealthScoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _bg,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-              color: _bg.withValues(alpha: 0.38),
-              blurRadius: 18,
-              offset: const Offset(0, 6))
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppColors.radiusCard + 4),
+        boxShadow: const [BoxShadow(
+            color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4))],
       ),
       child: Row(
         children: [
-          // Score circle
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '$score',
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                ),
+          // ── Animated ring ──
+          AnimatedBuilder(
+            animation: _progress,
+            builder: (_, __) => SizedBox(
+              width: 90,
+              height: 90,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 90, height: 90,
+                    child: CircularProgressIndicator(
+                      value: _progress.value,
+                      strokeWidth: 8,
+                      backgroundColor: const Color(0xFFEEEEEE),
+                      valueColor: AlwaysStoppedAnimation<Color>(_ringColor),
+                      strokeCap: StrokeCap.round,
+                    ),
+                  ),
+                  Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(
+                      '${widget.score}',
+                      style: TextStyle(fontFamily: 'Nunito', fontSize: 28,
+                          fontWeight: FontWeight.w900, color: _ringColor),
+                    ),
+                    Text('/ 100', style: const TextStyle(
+                        fontFamily: 'Nunito', fontSize: 9,
+                        fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+                  ]),
+                ],
               ),
             ),
           ),
+
           const SizedBox(width: 18),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'HEALTH SCORE',
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white70,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _label,
-                  style: const TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
+                const Text('HEALTH SCORE', style: TextStyle(
+                    fontFamily: 'Nunito', fontSize: 10,
+                    fontWeight: FontWeight.w700, color: AppColors.textMuted,
+                    letterSpacing: 1.2)),
+                const SizedBox(height: 5),
+                Text(_label, style: const TextStyle(
+                    fontFamily: 'Nunito', fontSize: 14,
+                    fontWeight: FontWeight.w800, color: AppColors.textDark)),
                 const SizedBox(height: 10),
-                // Score bar
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(50),
-                  child: LinearProgressIndicator(
-                    value: score / 100.0,
-                    minHeight: 6,
-                    backgroundColor: Colors.white.withValues(alpha: 0.28),
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(Colors.white),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _ringColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(50),
                   ),
+                  child: Text(_severityTag, style: TextStyle(
+                      fontFamily: 'Nunito', fontSize: 11,
+                      fontWeight: FontWeight.w800, color: _ringColor)),
                 ),
               ],
             ),
@@ -1820,6 +2102,185 @@ class _ProbBar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DAY 11: HABIT CARD
+// ─────────────────────────────────────────────────────────────
+
+class _HabitCard extends StatelessWidget {
+  final DetectedHabit habit;
+  const _HabitCard({required this.habit});
+
+  Color get _borderColor {
+    switch (habit.color) {
+      case HealthColor.green:  return const Color(0xFFBBF7D0);
+      case HealthColor.yellow: return const Color(0xFFFDE68A);
+      case HealthColor.red:    return const Color(0xFFFECACA);
+    }
+  }
+
+  Color get _bgColor {
+    switch (habit.color) {
+      case HealthColor.green:  return const Color(0xFFF0FDF4);
+      case HealthColor.yellow: return const Color(0xFFFFFBEB);
+      case HealthColor.red:    return const Color(0xFFFFF1F2);
+    }
+  }
+
+  Color get _textColor {
+    switch (habit.color) {
+      case HealthColor.green:  return const Color(0xFF166534);
+      case HealthColor.yellow: return const Color(0xFF92400E);
+      case HealthColor.red:    return const Color(0xFF991B1B);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _bgColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _borderColor, width: 1.5),
+        boxShadow: const [BoxShadow(
+            color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          Text(habit.emoji, style: const TextStyle(fontSize: 26)),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(habit.title, style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 14,
+                  fontWeight: FontWeight.w800, color: _textColor)),
+              const SizedBox(height: 3),
+              Text(habit.description, style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 12,
+                  fontWeight: FontWeight.w600, color: _textColor.withValues(alpha: 0.78),
+                  height: 1.4)),
+            ],
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DAY 11: PREDICTION CARD
+// ─────────────────────────────────────────────────────────────
+
+class _PredictionCard extends StatelessWidget {
+  final PredictiveWarning warning;
+  const _PredictionCard({required this.warning});
+
+  Color get _accentColor {
+    switch (warning.severity) {
+      case HealthColor.red:    return const Color(0xFFDC2626);
+      case HealthColor.yellow: return const Color(0xFFD97706);
+      default:                 return const Color(0xFF2563EB);
+    }
+  }
+
+  Color get _bgColor {
+    switch (warning.severity) {
+      case HealthColor.red:    return const Color(0xFFFFF1F2);
+      case HealthColor.yellow: return const Color(0xFFFFFBEB);
+      default:                 return const Color(0xFFEFF6FF);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _bgColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+            color: _accentColor.withValues(alpha: 0.35), width: 1.5),
+        boxShadow: const [BoxShadow(
+            color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Text(warning.emoji,
+                  style: const TextStyle(fontSize: 20)),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(warning.title, style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 14,
+                  fontWeight: FontWeight.w800, color: _accentColor)),
+              const SizedBox(height: 3),
+              Text(warning.detail, style: TextStyle(
+                  fontFamily: 'Nunito', fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _accentColor.withValues(alpha: 0.78),
+                  height: 1.4)),
+            ],
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DAY 11: SUGGESTION ROW
+// ─────────────────────────────────────────────────────────────
+
+class _SuggestionRow extends StatelessWidget {
+  final ActionSuggestion suggestion;
+  const _SuggestionRow({required this.suggestion});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Text(suggestion.emoji,
+                  style: const TextStyle(fontSize: 20)),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(suggestion.action, style: const TextStyle(
+                fontFamily: 'Nunito', fontSize: 13,
+                fontWeight: FontWeight.w700, color: AppColors.textDark,
+                height: 1.4)),
+          ),
+          const Icon(Icons.chevron_right_rounded,
+              color: AppColors.textMuted, size: 20),
+        ],
+      ),
     );
   }
 }

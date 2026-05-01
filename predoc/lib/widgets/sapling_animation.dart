@@ -1,7 +1,11 @@
+// SaplingAnimation — Day 13
+// Strict progressive drawing: seed → sprout → plant
+// NO scale animation. NO fade animation.
+// Uses PathMetrics for stem growth + progressive leaf drawing.
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// A custom animated sapling that grows from seed → sprout → full plant
 class SaplingAnimation extends StatefulWidget {
   final double size;
   final VoidCallback? onComplete;
@@ -10,7 +14,7 @@ class SaplingAnimation extends StatefulWidget {
     super.key,
     this.size = 280,
     this.onComplete,
-  });
+  }); 
 
   @override
   State<SaplingAnimation> createState() => SaplingAnimationState();
@@ -18,101 +22,95 @@ class SaplingAnimation extends StatefulWidget {
 
 class SaplingAnimationState extends State<SaplingAnimation>
     with TickerProviderStateMixin {
-  // Stem growth
-  late AnimationController _stemController;
-  late Animation<double> _stemHeight;
+  // Phase 1 — seed hatches (0 → 1)
+  late AnimationController _seedCtrl;
+  late Animation<double> _seedProgress;
 
-  // Leaves appear one by one
-  late AnimationController _leavesController;
+  // Phase 2 — stem draws upward (0 → 1)
+  late AnimationController _stemCtrl;
+  late Animation<double> _stemProgress;
+
+  // Phase 3 — leaves draw in sequence (0 → 1 each)
+  late AnimationController _leavesCtrl;
   late Animation<double> _leaf1;
   late Animation<double> _leaf2;
   late Animation<double> _leaf3;
   late Animation<double> _leaf4;
 
-  // Soil/pot appear
-  late AnimationController _potController;
-  late Animation<double> _potScale;
-
-  // Gentle sway after full growth
-  late AnimationController _swayController;
+  // Gentle sway after complete (idle loop)
+  late AnimationController _swayCtrl;
   late Animation<double> _sway;
 
-  bool _isComplete = false;
+  bool _complete = false;
 
   @override
   void initState() {
     super.initState();
 
-    // Pot slides up first
-    _potController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _potScale = CurvedAnimation(parent: _potController, curve: Curves.elasticOut);
+    // Seed phase — the pot + soil + seed dot grows via path drawing
+    _seedCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _seedProgress = CurvedAnimation(parent: _seedCtrl, curve: Curves.easeOut);
 
-    // Stem grows upward
-    _stemController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _stemHeight = CurvedAnimation(parent: _stemController, curve: Curves.easeOut);
+    // Stem phase — path is drawn progressively via PathMetrics
+    _stemCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1400));
+    _stemProgress = CurvedAnimation(parent: _stemCtrl, curve: Curves.easeInOut);
 
-    // Leaves unfold in sequence
-    _leavesController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    );
+    // Leaves phase — each leaf drawn from base to tip sequentially
+    _leavesCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 2200));
     _leaf1 = CurvedAnimation(
-      parent: _leavesController,
-      curve: const Interval(0.0, 0.3, curve: Curves.elasticOut),
-    );
+        parent: _leavesCtrl,
+        curve: const Interval(0.00, 0.28, curve: Curves.easeOut));
     _leaf2 = CurvedAnimation(
-      parent: _leavesController,
-      curve: const Interval(0.2, 0.5, curve: Curves.elasticOut),
-    );
+        parent: _leavesCtrl,
+        curve: const Interval(0.22, 0.50, curve: Curves.easeOut));
     _leaf3 = CurvedAnimation(
-      parent: _leavesController,
-      curve: const Interval(0.4, 0.7, curve: Curves.elasticOut),
-    );
+        parent: _leavesCtrl,
+        curve: const Interval(0.44, 0.72, curve: Curves.easeOut));
     _leaf4 = CurvedAnimation(
-      parent: _leavesController,
-      curve: const Interval(0.6, 1.0, curve: Curves.elasticOut),
-    );
+        parent: _leavesCtrl,
+        curve: const Interval(0.66, 1.00, curve: Curves.easeOut));
 
-    // Gentle sway
-    _swayController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2500),
-    );
-    _sway = Tween<double>(begin: -0.03, end: 0.03).animate(
-      CurvedAnimation(parent: _swayController, curve: Curves.easeInOut),
-    );
+    // Sway — gentle sine via repeated animation
+    _swayCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 2800));
+    _sway = Tween<double>(begin: -0.025, end: 0.025)
+        .animate(CurvedAnimation(parent: _swayCtrl, curve: Curves.easeInOut));
 
     _runSequence();
   }
 
   Future<void> _runSequence() async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    await _potController.forward();
-    await Future.delayed(const Duration(milliseconds: 200));
-    await _stemController.forward();
-    await Future.delayed(const Duration(milliseconds: 100));
-    await _leavesController.forward();
     await Future.delayed(const Duration(milliseconds: 300));
-    _swayController.repeat(reverse: true);
 
-    if (!_isComplete) {
-      _isComplete = true;
+    // Seed / pot appears via progressive draw
+    await _seedCtrl.forward();
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Stem grows upward
+    await _stemCtrl.forward();
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // Leaves unfold
+    await _leavesCtrl.forward();
+
+    // Start sway loop
+    _swayCtrl.repeat(reverse: true);
+
+    if (!_complete) {
+      _complete = true;
       widget.onComplete?.call();
     }
   }
 
   @override
   void dispose() {
-    _potController.dispose();
-    _stemController.dispose();
-    _leavesController.dispose();
-    _swayController.dispose();
+    _seedCtrl.dispose();
+    _stemCtrl.dispose();
+    _leavesCtrl.dispose();
+    _swayCtrl.dispose();
     super.dispose();
   }
 
@@ -120,46 +118,43 @@ class SaplingAnimationState extends State<SaplingAnimation>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge([
-        _potScale,
-        _stemHeight,
+        _seedProgress,
+        _stemProgress,
         _leaf1,
         _leaf2,
         _leaf3,
         _leaf4,
         _sway,
       ]),
-      builder: (context, _) {
-        return SizedBox(
-          width: widget.size,
-          height: widget.size,
-          child: CustomPaint(
-            painter: _SaplingPainter(
-              potScale: _potScale.value,
-              stemProgress: _stemHeight.value,
-              leaf1: _leaf1.value,
-              leaf2: _leaf2.value,
-              leaf3: _leaf3.value,
-              leaf4: _leaf4.value,
-              sway: _sway.value,
-            ),
+      builder: (_, __) => SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(
+          painter: _SaplingPainter(
+            seedProgress: _seedProgress.value,
+            stemProgress: _stemProgress.value,
+            leaf1: _leaf1.value,
+            leaf2: _leaf2.value,
+            leaf3: _leaf3.value,
+            leaf4: _leaf4.value,
+            sway: _sway.value,
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
+// ── Painter ───────────────────────────────────────────────────────────────
+
 class _SaplingPainter extends CustomPainter {
-  final double potScale;
+  final double seedProgress;
   final double stemProgress;
-  final double leaf1;
-  final double leaf2;
-  final double leaf3;
-  final double leaf4;
+  final double leaf1, leaf2, leaf3, leaf4;
   final double sway;
 
-  _SaplingPainter({
-    required this.potScale,
+  const _SaplingPainter({
+    required this.seedProgress,
     required this.stemProgress,
     required this.leaf1,
     required this.leaf2,
@@ -170,44 +165,48 @@ class _SaplingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (seedProgress <= 0) return;
+
     final cx = size.width / 2;
     final cy = size.height;
 
-    // === POT ===
-    if (potScale > 0) {
-      canvas.save();
-      canvas.translate(cx, cy - 10);
-      canvas.scale(potScale, potScale);
-      canvas.translate(-cx, -(cy - 10));
-      _drawPot(canvas, size, cx, cy);
-      canvas.restore();
+    // ── SEED PHASE — pot + soil drawn progressively ──────────────────
+    _drawPot(canvas, size, cx, cy, seedProgress);
+
+    if (stemProgress <= 0 && leaf1 <= 0) return;
+
+    // ── STEM + LEAVES — apply gentle sway ────────────────────────────
+    canvas.save();
+    canvas.translate(cx, cy - 58);
+    canvas.rotate(sway);
+    canvas.translate(-cx, -(cy - 58));
+
+    _drawStem(canvas, size, cx, cy, stemProgress);
+
+    if (stemProgress > 0.15) {
+      _drawLeaves(canvas, size, cx, cy);
     }
 
-    // === STEM + LEAVES ===
-    if (stemProgress > 0) {
-      canvas.save();
-      // Apply gentle sway rotation from base
-      canvas.translate(cx, cy - 60);
-      canvas.rotate(sway);
-      canvas.translate(-cx, -(cy - 60));
-      _drawStemAndLeaves(canvas, size, cx, cy);
-      canvas.restore();
-    }
+    canvas.restore();
   }
 
-  void _drawPot(Canvas canvas, Size size, double cx, double cy) {
-    // Soil (dark brown oval)
+  // ── POT — drawn by progressively clipping a vertical rect ──────────
+  void _drawPot(Canvas canvas, Size size, double cx, double cy, double p) {
+    final potH = size.height * 0.22; // total pot height
+    final drawn = potH * p; // how much is revealed top-to-bottom
+
+    canvas.save();
+    // Clip: reveal from bottom up
+    canvas.clipRect(Rect.fromLTRB(0, cy - drawn, size.width, cy + 20));
+
+    // Soil oval
     final soilPaint = Paint()..color = const Color(0xFF5C3D1E);
     canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, cy - 58),
-        width: size.width * 0.52,
-        height: 16,
-      ),
-      soilPaint,
-    );
+        Rect.fromCenter(
+            center: Offset(cx, cy - 58), width: size.width * 0.52, height: 16),
+        soilPaint);
 
-    // Pot body (purple trapezoid)
+    // Pot body (trapezoid)
     final potPaint = Paint()..color = AppColors.primary;
     final potPath = Path()
       ..moveTo(cx - size.width * 0.22, cy - 55)
@@ -217,24 +216,19 @@ class _SaplingPainter extends CustomPainter {
       ..close();
     canvas.drawPath(potPath, potPaint);
 
-    // Pot rim
-    final rimPaint = Paint()
-      ..color = AppColors.primaryDark
-      ..style = PaintingStyle.fill;
-    final rimRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: Offset(cx, cy - 57),
-        width: size.width * 0.5,
-        height: 14,
-      ),
-      const Radius.circular(7),
-    );
-    canvas.drawRRect(rimRect, rimPaint);
+    // Rim
+    final rimPaint = Paint()..color = AppColors.primaryDark;
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(cx, cy - 57),
+                width: size.width * 0.5,
+                height: 14),
+            const Radius.circular(7)),
+        rimPaint);
 
-    // Pot highlight
-    final hlPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.18)
-      ..style = PaintingStyle.fill;
+    // Highlight stripe
+    final hlPaint = Paint()..color = Colors.white.withValues(alpha: 0.18);
     final hlPath = Path()
       ..moveTo(cx - size.width * 0.18, cy - 52)
       ..lineTo(cx - size.width * 0.22, cy - 20)
@@ -242,116 +236,159 @@ class _SaplingPainter extends CustomPainter {
       ..lineTo(cx - size.width * 0.08, cy - 52)
       ..close();
     canvas.drawPath(hlPath, hlPaint);
+
+    // Seed dot (visible only in early phase)
+    if (stemProgress < 0.05) {
+      final seedPaint = Paint()..color = const Color(0xFF8B5E3C);
+      canvas.drawCircle(Offset(cx, cy - 66), 5 * p, seedPaint);
+    }
+
+    canvas.restore();
   }
 
-  void _drawStemAndLeaves(Canvas canvas, Size size, double cx, double cy) {
-    final maxStemHeight = size.height * 0.55;
-    final stemTop = (cy - 60) - maxStemHeight * stemProgress;
+  // ── STEM — drawn via PathMetrics (true progressive draw) ─────────────
+  void _drawStem(Canvas canvas, Size size, double cx, double cy, double p) {
+    if (p <= 0) return;
 
-    // === STEM ===
+    final maxH = size.height * 0.55;
+    final stemTop = (cy - 60) - maxH;
+
+    // Full bezier stem path
+    final fullPath = Path()
+      ..moveTo(cx, cy - 60)
+      ..cubicTo(cx + 10, cy - 60 - maxH * 0.28, cx - 8, cy - 60 - maxH * 0.62,
+          cx, stemTop);
+
+    // Extract only the drawn portion using PathMetrics
+    final metrics = fullPath.computeMetrics().first;
+    final drawnLen = metrics.length * p;
+    final drawnPath = metrics.extractPath(0, drawnLen);
+
     final stemPaint = Paint()
       ..color = const Color(0xFF4ADE80)
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    final stemPath = Path()
-      ..moveTo(cx, cy - 60)
-      ..cubicTo(
-        cx + 8, cy - 60 - maxStemHeight * 0.3 * stemProgress,
-        cx - 6, cy - 60 - maxStemHeight * 0.6 * stemProgress,
-        cx, stemTop,
-      );
-    canvas.drawPath(stemPath, stemPaint);
+    canvas.drawPath(drawnPath, stemPaint);
+  }
 
-    if (stemProgress < 0.1) return;
+  // ── LEAVES — each drawn from base to tip progressively ─────────────
+  void _drawLeaves(Canvas canvas, Size size, double cx, double cy) {
+    final maxH = size.height * 0.55;
+    final stemTop = (cy - 60) - maxH;
 
-    // === LEAVES ===
-    // Leaf 1 – lower left
-    final leaf1Y = cy - 60 - maxStemHeight * 0.25 * stemProgress;
-    _drawLeaf(canvas, cx - 4, leaf1Y, leaf1, -0.6, false, const Color(0xFF22C55E));
+    // Leaf positions along stem (fractions of stem height)
+    final l1Y = (cy - 60) - maxH * 0.28 * stemProgress;
+    final l2Y = (cy - 60) - maxH * 0.45 * stemProgress;
+    final l3Y = (cy - 60) - maxH * 0.65 * stemProgress;
 
-    // Leaf 2 – lower right
-    final leaf2Y = cy - 60 - maxStemHeight * 0.40 * stemProgress;
-    _drawLeaf(canvas, cx + 2, leaf2Y, leaf2, 0.5, true, const Color(0xFF16A34A));
+    _progressiveLeaf(
+        canvas, cx - 4, l1Y, leaf1, -0.6, false, const Color(0xFF22C55E));
+    _progressiveLeaf(
+        canvas, cx + 2, l2Y, leaf2, 0.5, true, const Color(0xFF16A34A));
+    _progressiveLeaf(
+        canvas, cx - 2, l3Y, leaf3, -0.7, false, const Color(0xFF4ADE80));
 
-    // Leaf 3 – mid left
-    final leaf3Y = cy - 60 - maxStemHeight * 0.62 * stemProgress;
-    _drawLeaf(canvas, cx - 2, leaf3Y, leaf3, -0.7, false, const Color(0xFF4ADE80));
-
-    // Leaf 4 – top (heart-shaped top leaf)
     if (leaf4 > 0) {
-      _drawTopLeaf(canvas, cx, stemTop, leaf4);
+      _progressiveTopLeaf(canvas, cx, stemTop, leaf4);
     }
   }
 
-  void _drawLeaf(Canvas canvas, double x, double y, double progress,
+  /// Draws a leaf from base toward tip using PathMetrics (true progressive draw)
+  void _progressiveLeaf(Canvas canvas, double x, double y, double progress,
       double angle, bool flipX, Color color) {
     if (progress <= 0) return;
-    final leafLen = 40.0 * progress;
-    final leafWidth = 20.0 * progress;
+
+    const leafLen = 42.0;
+    const leafWidth = 18.0;
 
     canvas.save();
     canvas.translate(x, y);
     canvas.rotate(angle);
     if (flipX) canvas.scale(-1, 1);
 
-    final leafPaint = Paint()..color = color;
+    // Full leaf outline path
     final leafPath = Path()
       ..moveTo(0, 0)
-      ..cubicTo(-leafWidth, -leafLen * 0.4, -leafWidth * 0.8, -leafLen * 0.8,
-          0, -leafLen)
-      ..cubicTo(
-          leafWidth * 0.4, -leafLen * 0.8, leafWidth * 0.2, -leafLen * 0.4, 0, 0)
+      ..cubicTo(-leafWidth, -leafLen * 0.4, -leafWidth * 0.8, -leafLen * 0.8, 0,
+          -leafLen)
+      ..cubicTo(leafWidth * 0.4, -leafLen * 0.8, leafWidth * 0.2,
+          -leafLen * 0.4, 0, 0)
       ..close();
-    canvas.drawPath(leafPath, leafPaint);
 
-    // Leaf vein
-    final veinPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.25)
-      ..strokeWidth = 1.2
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(const Offset(0, 0), Offset(0, -leafLen * 0.8), veinPaint);
+    // Draw solid fill at current progress by clipping
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(
+        -leafWidth * 1.5, -leafLen * progress, leafWidth * 1.5, 0));
+    canvas.drawPath(leafPath, Paint()..color = color);
+    canvas.restore();
+
+    // Vein (only if leaf is sufficiently drawn)
+    if (progress > 0.2) {
+      final veinLen = leafLen * progress * 0.8;
+      canvas.drawLine(
+          const Offset(0, 0),
+          Offset(0, -veinLen),
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.28)
+            ..strokeWidth = 1.2
+            ..style = PaintingStyle.stroke);
+    }
 
     canvas.restore();
   }
 
-  void _drawTopLeaf(Canvas canvas, double x, double y, double progress) {
-    final r = 18.0 * progress;
+  /// Top two-wing leaf drawn progressively
+  void _progressiveTopLeaf(Canvas canvas, double x, double y, double progress) {
+    if (progress <= 0) return;
+    const r = 18.0;
+
     canvas.save();
     canvas.translate(x, y);
 
-    // Top two big leaves
+    // Clip to reveal from center downward → upward
+    canvas.clipRect(Rect.fromLTRB(-r * 3, -r * 3 * progress, r * 3, 0));
+
     final paint = Paint()..color = const Color(0xFF22C55E);
 
-    // Left big leaf
-    final leftPath = Path()
-      ..moveTo(0, 0)
-      ..cubicTo(-r * 2, -r, -r * 2.5, -r * 2.5, -r * 0.5, -r * 2.8)
-      ..cubicTo(-r * 0.2, -r * 2, -r * 0.5, -r, 0, 0)
-      ..close();
-    canvas.drawPath(leftPath, paint);
+    // Left wing
+    canvas.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..cubicTo(-r * 2, -r, -r * 2.5, -r * 2.5, -r * 0.5, -r * 2.8)
+          ..cubicTo(-r * 0.2, -r * 2, -r * 0.5, -r, 0, 0)
+          ..close(),
+        paint);
 
-    // Right big leaf
-    final rightPath = Path()
-      ..moveTo(0, 0)
-      ..cubicTo(r * 2, -r, r * 2.5, -r * 2.5, r * 0.5, -r * 2.8)
-      ..cubicTo(r * 0.2, -r * 2, r * 0.5, -r, 0, 0)
-      ..close();
-    canvas.drawPath(rightPath, paint);
+    // Right wing
+    canvas.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..cubicTo(r * 2, -r, r * 2.5, -r * 2.5, r * 0.5, -r * 2.8)
+          ..cubicTo(r * 0.2, -r * 2, r * 0.5, -r, 0, 0)
+          ..close(),
+        paint);
 
-    // Center top shoot
-    final shootPaint = Paint()..color = const Color(0xFF4ADE80);
-    final shootPath = Path()
-      ..moveTo(0, 0)
-      ..cubicTo(-r * 0.3, -r, -r * 0.2, -r * 2.5, 0, -r * 3)
-      ..cubicTo(r * 0.2, -r * 2.5, r * 0.3, -r, 0, 0)
-      ..close();
-    canvas.drawPath(shootPath, shootPaint);
+    // Center shoot
+    canvas.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..cubicTo(-r * 0.3, -r, -r * 0.2, -r * 2.5, 0, -r * 3)
+          ..cubicTo(r * 0.2, -r * 2.5, r * 0.3, -r, 0, 0)
+          ..close(),
+        Paint()..color = const Color(0xFF4ADE80));
 
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_SaplingPainter old) => true;
+  bool shouldRepaint(_SaplingPainter old) =>
+      old.seedProgress != seedProgress ||
+      old.stemProgress != stemProgress ||
+      old.leaf1 != leaf1 ||
+      old.leaf2 != leaf2 ||
+      old.leaf3 != leaf3 ||
+      old.leaf4 != leaf4 ||
+      old.sway != sway;
 }

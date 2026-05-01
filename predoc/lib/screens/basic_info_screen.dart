@@ -229,7 +229,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     if (mounted) {
       _showSuccessSnackbar();
       await Future.delayed(const Duration(milliseconds: 900));
-      if (mounted) context.go('/home');
+      if (mounted) context.go('/device_test');
     }
   }
 

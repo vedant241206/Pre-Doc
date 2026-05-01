@@ -8,6 +8,7 @@ import '../services/camera_service.dart';
 import '../services/model_service.dart';
 import '../services/storage_service.dart';
 import '../services/insight_service.dart';
+import '../utils/local_storage.dart';
 
 // ─────────────────────────────────────────────────────────────
 // DEVICE TEST SCREEN
@@ -288,6 +289,12 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     await Future.delayed(const Duration(milliseconds: 800));
   }
 
+  /// Called after health score is shown — marks test done and goes home
+  Future<void> _goHome() async {
+    await LocalStorage.setDeviceTestDone();
+    if (mounted) context.go('/home');
+  }
+
   Future<void> _skipAll() async {
     await StorageService.saveDetectionResult(
       coughCount:     0,
@@ -308,7 +315,10 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     _progressController.forward(from: 0);
 
     await Future.delayed(const Duration(milliseconds: 1400));
-    if (mounted) context.go('/home');
+    if (mounted) {
+      await LocalStorage.setDeviceTestDone();
+      if (mounted) context.go('/home');
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -972,7 +982,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: () => context.go('/home'),
+            onTap: _goHome,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 18),

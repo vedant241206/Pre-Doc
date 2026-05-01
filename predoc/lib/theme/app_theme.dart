@@ -1,31 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// ─────────────────────────────────────────────────────────────
+// APP COLORS — Day 12 Design System
+// primary:  soft purple  (#7C3AED)
+// good:     #4CAF50
+// moderate: #FFC107
+// risk:     #F44336
+// bg:       #FAFAFA
+// ─────────────────────────────────────────────────────────────
+
 class AppColors {
   // Primary purple palette
-  static const Color primary = Color(0xFF7C3AED);
-  static const Color primaryDark = Color(0xFF5B21B6);
+  static const Color primary      = Color(0xFF7C3AED);
+  static const Color primaryDark  = Color(0xFF5B21B6);
   static const Color primaryLight = Color(0xFFEDE9FE);
-  static const Color primaryMid = Color(0xFFA78BFA);
+  static const Color primaryMid   = Color(0xFFA78BFA);
 
-  // Background
-  static const Color background = Color(0xFFF5F0FF);
+  // Day 12: Semantic status colours
+  static const Color good         = Color(0xFF4CAF50);  // green
+  static const Color moderate     = Color(0xFFFFC107);  // amber
+  static const Color risk         = Color(0xFFF44336);  // red
+
+  // Background — Day 12: #FAFAFA
+  static const Color background     = Color(0xFFFAFAFA);
   static const Color backgroundCard = Color(0xFFFFFFFF);
 
-  // Accent
-  static const Color accent = Color(0xFFFBBF24);   // yellow
-  static const Color accentGreen = Color(0xFF22C55E);
-  static const Color accentRed = Color(0xFFEF4444);
+  // Accent (kept for live-monitoring banner)
+  static const Color accent      = Color(0xFFFBBF24);
+  static const Color accentGreen = Color(0xFF4CAF50);   // aligned to `good`
+  static const Color accentRed   = Color(0xFFF44336);   // aligned to `risk`
 
   // Text
-  static const Color textDark = Color(0xFF1E1B4B);
-  static const Color textMid = Color(0xFF4C1D95);
+  static const Color textDark  = Color(0xFF1E1B4B);
+  static const Color textMid   = Color(0xFF4C1D95);
   static const Color textLight = Color(0xFF8B5CF6);
   static const Color textMuted = Color(0xFF9CA3AF);
 
   // Utility
   static const Color divider = Color(0xFFE9D5FF);
-  static const Color shadow = Color(0x1A7C3AED);
+  static const Color shadow  = Color(0x1A7C3AED);
+
+  // Day 12: spacing / radius helpers exposed as constants
+  static const double radiusCard   = 16.0;
+  static const double paddingH     = 20.0;
+  static const double paddingV     = 16.0;
+  static const double sectionGap   = 24.0;
 }
 
 class AppTheme {
@@ -93,7 +113,7 @@ class AppTheme {
             fontWeight: FontWeight.w800,
             letterSpacing: 0.3,
           ),
-          elevation: 4,
+          elevation: 2,
           shadowColor: AppColors.shadow,
         ),
       ),
@@ -109,3 +129,25 @@ class AppTheme {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// SHARED DECORATION HELPERS (Day 12)
+// ─────────────────────────────────────────────────────────────
+
+BoxDecoration appCardDecoration({
+  Color? color,
+  double? radius,
+  Border? border,
+}) =>
+    BoxDecoration(
+      color: color ?? AppColors.backgroundCard,
+      borderRadius: BorderRadius.circular(radius ?? AppColors.radiusCard),
+      boxShadow: const [
+        BoxShadow(
+          color: AppColors.shadow,
+          blurRadius: 8,
+          offset: Offset(0, 3),
+        ),
+      ],
+      border: border,
+    );

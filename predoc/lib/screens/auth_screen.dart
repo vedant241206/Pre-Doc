@@ -42,19 +42,19 @@ class _AuthScreenState extends State<AuthScreen>
   void _goNext() => context.go('/permissions');
 
   Future<void> _onCreateAccount() async {
-    await LocalStorage.setAuthDone();
+    await LocalStorage.setLoggedIn();
     if (mounted) _goNext();
   }
 
   Future<void> _onSignIn() async {
-    await LocalStorage.setAuthDone();
+    await LocalStorage.setLoggedIn();
     if (mounted) _goNext();
   }
 
   Future<void> _onSkip() async {
     if (!_skipChecked) return;
     await LocalStorage.setSkipAuth(true);
-    await LocalStorage.setAuthDone();
+    await LocalStorage.setLoggedIn();
     if (mounted) _goNext();
   }
 

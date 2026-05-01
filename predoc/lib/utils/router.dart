@@ -6,17 +6,33 @@ import '../screens/basic_info_screen.dart';
 import '../screens/device_test_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/leaderboard_screen.dart';
+import '../screens/settings_screen.dart';
 import '../screens/passive_monitoring_permission_screen.dart';
 import '../screens/monitoring_permission_screen.dart';
-import '../screens/settings_screen.dart';
 import '../utils/local_storage.dart';
 
-
+/// Central router with redirect() guard.
+/// Flow: /intro → /auth → /permissions → /basic_info → /device_test → /home
 GoRouter createRouter() {
-  final initialLocation = LocalStorage.getInitialRoute();
-
   return GoRouter(
-    initialLocation: initialLocation,
+    initialLocation: LocalStorage.getInitialRoute(),
+
+    // ── Central redirect guard ──────────────────────────────────────────
+    // Runs on EVERY route change, including app start.
+    redirect: (context, state) {
+      final location = state.uri.toString();
+
+      // Non-onboarding utility routes — never redirect
+      if (location.startsWith('/leaderboard') ||
+          location.startsWith('/settings')    ||
+          location.startsWith('/passive_permissions') ||
+          location.startsWith('/monitoring_permission')) {
+        return null;
+      }
+
+      return LocalStorage.computeRedirect(location);
+    },
+
     routes: [
       GoRoute(
         path: '/intro',
@@ -38,14 +54,13 @@ GoRouter createRouter() {
         name: 'basic_info',
         builder: (context, state) => const BasicInfoScreen(),
       ),
-      // Day 8: Passive monitoring onboarding (shown once after basic_info)
+      // Day 8/9 sub-screens — kept in route table but no longer
+      // blocking; deviceTestDone flag covers them
       GoRoute(
         path: '/passive_permissions',
         name: 'passive_permissions',
-        builder: (context, state) =>
-            const PassiveMonitoringPermissionScreen(),
+        builder: (context, state) => const PassiveMonitoringPermissionScreen(),
       ),
-      // Day 9: Monitoring permission onboarding (Part 4)
       GoRoute(
         path: '/monitoring_permission',
         name: 'monitoring_permission',

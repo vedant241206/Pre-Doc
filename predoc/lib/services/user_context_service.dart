@@ -1,24 +1,20 @@
-// UserContextService — Day 9
+// UserContextService — Day 10
 //
-// Stores user-reported health conditions and exposes adjusted
-// detection thresholds for ContinuousAudioService.
+// Reads Day 10 multi-condition flags from StorageService and computes
+// personalized detection thresholds.
 //
-// Supported conditions (researched):
-//   none     — baseline thresholds
-//   asthma   — lower cough threshold (more sensitive)
-//   cold     — lower sneeze threshold
-//   copd     — lower cough + snore threshold
-//   allergy  — lower sneeze threshold (similar to cold)
-//   bronchitis — lower cough threshold
-//   sleep_apnea — lower snore threshold
-//   flu      — all thresholds lowered moderately
+// Day 10 Spec:
+//   if asthma:         cough_threshold = 0.25
+//   if frequent cold:  sneeze_threshold = 0.30
+//   if sleep issues:   snore_penalty += 3 (snore min windows raised to 7)
 //
-// SAFETY: thresholds are clamped [0.10, 0.90] to prevent runaway triggers.
+// Also retains legacy single-condition support for ContinuousAudioService.
 
 import '../utils/local_storage.dart';
+import '../services/storage_service.dart';
 
 // ─────────────────────────────────────────────────────────────
-// HEALTH CONDITION ENUM
+// HEALTH CONDITION ENUM (legacy — kept for ContinuousAudioService)
 // ─────────────────────────────────────────────────────────────
 
 enum HealthCondition {
@@ -109,11 +105,14 @@ class ThresholdProfile {
   final double coughThreshold;
   final double sneezeThreshold;
   final double snoreThreshold;
+  /// Day 10: extra minimum windows required for snore (snore_penalty)
+  final int    snoreMinWindowsExtra;
 
   const ThresholdProfile({
     required this.coughThreshold,
     required this.sneezeThreshold,
     required this.snoreThreshold,
+    this.snoreMinWindowsExtra = 0,
   });
 }
 
@@ -122,15 +121,15 @@ class ThresholdProfile {
 // ─────────────────────────────────────────────────────────────
 
 class UserContextService {
-  // ── Baseline thresholds (same as ContinuousAudioService) ──
+  // ── Baseline thresholds ──
   static const double _baseCough  = 0.30;
   static const double _baseSneeze = 0.35;
   static const double _baseSnore  = 0.40;
 
-  // ── Persistence key ────────────────────────────────────────
+  // ── Legacy persistence key (single-condition) ───────────────
   static const String _keyCondition = 'user_health_condition';
 
-  // ── Get / Set persisted condition ─────────────────────────
+  // ── Legacy single-condition get/set ─────────────────────────
   static HealthCondition getCondition() {
     final key = LocalStorage.prefs.getString(_keyCondition) ?? 'none';
     return HealthConditionExtension.fromKey(key);
@@ -140,72 +139,115 @@ class UserContextService {
     await LocalStorage.prefs.setString(_keyCondition, condition.key);
   }
 
-  // ── Compute adjusted thresholds for the current condition ─
-  static ThresholdProfile getThresholds() {
-    final condition = getCondition();
-    return _profileFor(condition);
+  // ─────────────────────────────────────────────────────────────
+  // DAY 10: MULTI-CONDITION THRESHOLDS
+  //
+  // Reads Day 10 multi-condition flags and applies the spec rules:
+  //   asthma        → cough_threshold  = 0.25
+  //   frequent cold → sneeze_threshold = 0.30
+  //   sleep issues  → snore min windows += 3 (stricter snore confirmation)
+  // ─────────────────────────────────────────────────────────────
+  static ThresholdProfile getThresholdsDay10() {
+    double cough  = _baseCough;
+    double sneeze = _baseSneeze;
+    double snore  = _baseSnore;
+    int    snoreExtra = 0;
+
+    if (StorageService.condAsthma) {
+      cough = 0.25; // More sensitive to coughs
+    }
+
+    if (StorageService.condFrequentCold) {
+      sneeze = 0.30; // More sensitive to sneezes
+    }
+
+    if (StorageService.condSleepIssues) {
+      // snore_penalty += 3 → raise min windows to confirm snore
+      // (requires MORE evidence — reduces false alarms during normal sleep)
+      snoreExtra = 3;
+    }
+
+    return ThresholdProfile(
+      coughThreshold:       cough.clamp(0.10, 0.90),
+      sneezeThreshold:      sneeze.clamp(0.10, 0.90),
+      snoreThreshold:       snore.clamp(0.10, 0.90),
+      snoreMinWindowsExtra: snoreExtra,
+    );
   }
+
+  // ── Legacy single-condition thresholds (for ContinuousAudioService) ──
+  static ThresholdProfile getThresholds() {
+    // First apply Day 10 multi-condition logic
+    final day10 = getThresholdsDay10();
+
+    // Then overlay with the legacy single condition (e.g., COPD, Allergy)
+    final condition = getCondition();
+    if (condition == HealthCondition.none) return day10;
+
+    return _mergeWithLegacy(day10, condition);
+  }
+
+  static ThresholdProfile _mergeWithLegacy(
+    ThresholdProfile base,
+    HealthCondition c,
+  ) {
+    // Take the more sensitive (lower) threshold of Day10 vs legacy
+    final legacy = _profileFor(c);
+    return ThresholdProfile(
+      coughThreshold:       _lower(base.coughThreshold,  legacy.coughThreshold),
+      sneezeThreshold:      _lower(base.sneezeThreshold, legacy.sneezeThreshold),
+      snoreThreshold:       _lower(base.snoreThreshold,  legacy.snoreThreshold),
+      snoreMinWindowsExtra: base.snoreMinWindowsExtra,
+    );
+  }
+
+  static double _lower(double a, double b) => a < b ? a : b;
 
   static ThresholdProfile _profileFor(HealthCondition c) {
     switch (c) {
       case HealthCondition.asthma:
-        // Asthma causes frequent dry coughs — lower cough threshold
         return const ThresholdProfile(
           coughThreshold:  0.25,
           sneezeThreshold: 0.35,
           snoreThreshold:  0.40,
         );
-
       case HealthCondition.cold:
-        // Cold causes frequent sneezing — lower sneeze threshold
         return const ThresholdProfile(
           coughThreshold:  0.28,
           sneezeThreshold: 0.28,
           snoreThreshold:  0.40,
         );
-
       case HealthCondition.copd:
-        // COPD causes chronic cough and sometimes snoring
         return const ThresholdProfile(
           coughThreshold:  0.22,
           sneezeThreshold: 0.35,
           snoreThreshold:  0.32,
         );
-
       case HealthCondition.allergy:
-        // Allergy triggers sneezing fits
         return const ThresholdProfile(
           coughThreshold:  0.30,
           sneezeThreshold: 0.27,
           snoreThreshold:  0.40,
         );
-
       case HealthCondition.bronchitis:
-        // Bronchitis = persistent productive cough
         return const ThresholdProfile(
           coughThreshold:  0.23,
           sneezeThreshold: 0.35,
           snoreThreshold:  0.40,
         );
-
       case HealthCondition.sleepApnea:
-        // Sleep apnea → snoring is key signal
         return const ThresholdProfile(
           coughThreshold:  0.30,
           sneezeThreshold: 0.35,
           snoreThreshold:  0.28,
         );
-
       case HealthCondition.flu:
-        // Flu: cough + sneeze both elevated
         return const ThresholdProfile(
           coughThreshold:  0.26,
           sneezeThreshold: 0.28,
           snoreThreshold:  0.38,
         );
-
       case HealthCondition.none:
-        // Baseline
         return const ThresholdProfile(
           coughThreshold:  _baseCough,
           sneezeThreshold: _baseSneeze,

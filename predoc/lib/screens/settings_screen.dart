@@ -1,10 +1,5 @@
-// SettingsScreen — Day 9
-//
-// Added:
-//   • Health Conditions section (Part 5) — user picks their condition,
-//     thresholds are immediately refreshed in ContinuousAudioService
-//   • Live Monitoring toggle (Day 8 — unchanged)
-//   • Privacy section (Day 8 — unchanged)
+// SettingsScreen — Day 12 UI Refinement
+// Logic unchanged. UI polished: Profile / Health Conditions / App Settings sections.
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -12,11 +7,11 @@ import '../theme/app_theme.dart';
 import '../services/continuous_audio_service.dart';
 import '../services/storage_service.dart';
 import '../services/user_context_service.dart';
+import '../utils/local_storage.dart';
 import '../app_services.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
-
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -24,507 +19,537 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final ContinuousAudioService _continuousAudio = appContinuousAudio;
 
-  bool _liveMonitoringOn  = false;
-  bool _toggling          = false;
-  HealthCondition _condition = HealthCondition.none;
+  late TextEditingController _nameCtrl;
+  late TextEditingController _ageCtrl;
+  late String _gender;
+
+  late bool _asthma;
+  late bool _frequentCold;
+  late bool _sleepIssues;
+
+  bool _liveMonitoringOn = false;
+  bool _toggling         = false;
+  late String _notificationTime;
 
   @override
   void initState() {
     super.initState();
+    _nameCtrl         = TextEditingController(text: LocalStorage.userName);
+    _ageCtrl          = TextEditingController(
+        text: StorageService.userAge > 0 ? '${StorageService.userAge}' : '');
+    _gender           = LocalStorage.gender.isEmpty ? 'Prefer not to say' : LocalStorage.gender;
+    _asthma           = StorageService.condAsthma;
+    _frequentCold     = StorageService.condFrequentCold;
+    _sleepIssues      = StorageService.condSleepIssues;
     _liveMonitoringOn = StorageService.liveMonitoringEnabled;
-    _condition        = UserContextService.getCondition();
+    _notificationTime = StorageService.notificationTime;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // HEALTH CONDITION CHANGE
-  // ─────────────────────────────────────────────────────────────
-
-  Future<void> _onConditionChanged(HealthCondition? value) async {
-    if (value == null) return;
-    await UserContextService.setCondition(value);
-    _continuousAudio.refreshThresholds();
-    if (mounted) setState(() => _condition = value);
-
-    final profile = UserContextService.getThresholds();
-    debugPrint('[Settings] Condition changed to ${value.key} '
-        '— cough=${profile.coughThreshold} '
-        'sneeze=${profile.sneezeThreshold} '
-        'snore=${profile.snoreThreshold}');
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _ageCtrl.dispose();
+    super.dispose();
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // TOGGLE LIVE MONITORING
-  // ─────────────────────────────────────────────────────────────
-
-  Future<void> _handleToggle(bool value) async {
-    if (_toggling) return;
-
-    if (value) {
-      final confirmed = await _showPermissionDialog();
-      if (!confirmed) return;
-
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Microphone permission is required for live monitoring.',
-                style: TextStyle(fontFamily: 'Nunito'),
-              ),
-              backgroundColor: Color(0xFFEF4444),
-            ),
-          );
-        }
-        return;
-      }
-
-      setState(() => _toggling = true);
-      try {
-        if (!appModelService.isLoaded) {
-          await appModelService.loadModels();
-        }
-        await _continuousAudio.start();
-        await StorageService.setLiveMonitoringEnabled(true);
-        if (mounted) setState(() { _liveMonitoringOn = true; _toggling = false; });
-      } catch (e) {
-        if (mounted) setState(() => _toggling = false);
-        debugPrint('[Settings] Failed to start live monitoring: $e');
-      }
-    } else {
-      setState(() => _toggling = true);
-      try {
-        await _continuousAudio.stop();
-        await StorageService.setLiveMonitoringEnabled(false);
-        if (mounted) setState(() { _liveMonitoringOn = false; _toggling = false; });
-      } catch (e) {
-        if (mounted) setState(() => _toggling = false);
-      }
+  Future<void> _saveProfile() async {
+    await LocalStorage.setUserName(_nameCtrl.text.trim());
+    final age = int.tryParse(_ageCtrl.text.trim()) ?? 0;
+    await StorageService.setUserAge(age);
+    await LocalStorage.setGender(_gender);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Profile saved',
+            style: TextStyle(fontFamily: 'Nunito')),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppColors.radiusCard)),
+      ));
     }
   }
 
-  Future<bool> _showPermissionDialog() async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.all(24),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: const BoxDecoration(
-                color: AppColors.primaryLight,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.mic_rounded,
-                  color: AppColors.primary, size: 32),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Enable Live Health Monitoring?',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'This feature keeps the microphone active continuously to detect health signals like coughing, sneezing, and snoring.\n\n'
-              '✓ All data stays on your device\n'
-              '✓ No audio is recorded or stored\n'
-              '✓ Only event counts are saved\n'
-              '✓ A persistent notification will always be shown',
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textMuted,
-                height: 1.6,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel',
-                style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMuted)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Enable',
-                style: TextStyle(
-                    fontFamily: 'Nunito', fontWeight: FontWeight.w800)),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
+  Future<void> _saveConditions() async {
+    await StorageService.setConditions(
+        asthma: _asthma, frequentCold: _frequentCold, sleepIssues: _sleepIssues);
+    _continuousAudio.refreshThresholds();
+    final p = UserContextService.getThresholdsDay10();
+    debugPrint('[Settings] thresholds — cough=${p.coughThreshold} '
+        'sneeze=${p.sneezeThreshold} snore=${p.snoreThreshold}');
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────
+  Future<void> _handleToggle(bool value) async {
+    if (_toggling) return;
+    if (value) {
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Microphone permission required.',
+                style: TextStyle(fontFamily: 'Nunito')),
+            backgroundColor: AppColors.risk,
+          ));
+        }
+        return;
+      }
+      setState(() => _toggling = true);
+      try {
+        if (!appModelService.isLoaded) await appModelService.loadModels();
+        await _continuousAudio.start();
+        await StorageService.setLiveMonitoringEnabled(true);
+        if (mounted) setState(() { _liveMonitoringOn = true; _toggling = false; });
+      } catch (_) {
+        if (mounted) setState(() => _toggling = false);
+      }
+    } else {
+      setState(() => _toggling = true);
+      await _continuousAudio.stop();
+      await StorageService.setLiveMonitoringEnabled(false);
+      if (mounted) setState(() { _liveMonitoringOn = false; _toggling = false; });
+    }
+  }
+
+  Future<void> _pickNotificationTime() async {
+    final parts   = _notificationTime.split(':');
+    final initial = TimeOfDay(
+        hour:   int.tryParse(parts[0]) ?? 8,
+        minute: int.tryParse(parts[1]) ?? 0);
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked != null) {
+      final str = '${picked.hour.toString().padLeft(2, '0')}:'
+          '${picked.minute.toString().padLeft(2, '0')}';
+      await StorageService.setNotificationTime(str);
+      if (mounted) setState(() => _notificationTime = str);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.white,
         elevation: 0,
+        shadowColor: AppColors.shadow,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded,
               color: AppColors.textDark, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textDark,
-          ),
-        ),
-        centerTitle: false,
+        title: const Text('Settings', style: TextStyle(fontFamily: 'Nunito',
+            fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark)),
       ),
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppColors.paddingH, vertical: AppColors.paddingV),
         children: [
-          // ── Section: Health Monitoring ────────────────────────
-          _buildSectionHeader('Health Monitoring'),
+          // ── Profile Card ──────────────────────────────────────
+          _buildSectionLabel('👤  Profile'),
           const SizedBox(height: 10),
-          _buildLiveMonitoringTile(),
+          _buildProfileCard(),
+          const SizedBox(height: 12),
+          _buildSaveButton('Save Profile', _saveProfile),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: AppColors.sectionGap),
 
-          // ── Section: Health Conditions (Part 5) ───────────────
-          _buildSectionHeader('Health Conditions'),
-          const SizedBox(height: 6),
-          _buildConditionSubtitle(),
+          // ── Health Conditions ─────────────────────────────────
+          _buildSectionLabel('❤️  Health Conditions'),
+          const SizedBox(height: 4),
+          const Text('Adjusts detection sensitivity for you.',
+              style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
+                  fontWeight: FontWeight.w600, color: AppColors.textMuted)),
           const SizedBox(height: 10),
-          _buildConditionSelector(),
+          _buildConditionsCard(),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: AppColors.sectionGap),
 
-          // ── Section: Privacy ──────────────────────────────────
-          _buildSectionHeader('Privacy'),
+          // ── App Settings ──────────────────────────────────────
+          _buildSectionLabel('⚙️  App Settings'),
           const SizedBox(height: 10),
-          _buildInfoTile(
-            icon: Icons.lock_outline_rounded,
-            title: 'Data stays on device',
-            subtitle:
-                'No audio, health data, or personal info is ever uploaded.',
-          ),
+          _liveMonitoringTile(),
           const SizedBox(height: 10),
-          _buildInfoTile(
-            icon: Icons.mic_off_rounded,
-            title: 'No audio recordings',
-            subtitle:
-                'Live monitoring only stores event counts — never raw audio.',
-          ),
+          _notificationTile(),
+
+          const SizedBox(height: AppColors.sectionGap),
+
+          // ── Privacy ───────────────────────────────────────────
+          _buildSectionLabel('🔒  Privacy'),
           const SizedBox(height: 10),
-          _buildInfoTile(
-            icon: Icons.notifications_active_outlined,
-            title: 'Transparent notifications',
-            subtitle:
-                'A persistent notification is always shown when monitoring is active.',
-          ),
-          const SizedBox(height: 32),
+          _infoTile(icon: Icons.lock_outline_rounded,
+              title: 'All data stays on device',
+              subtitle: 'No audio, health data, or personal info is uploaded.'),
+          const SizedBox(height: 10),
+          _infoTile(icon: Icons.mic_off_rounded,
+              title: 'No audio recordings',
+              subtitle: 'Only event counts are saved — never raw audio.'),
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 
-  // ── Live Monitoring Toggle Tile ───────────────────────────────
+  // ── Section label ─────────────────────────────────────────
 
-  Widget _buildLiveMonitoringTile() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _liveMonitoringOn
-              ? AppColors.primary.withValues(alpha: 0.35)
-              : AppColors.divider,
-          width: 1.5,
-        ),
-        boxShadow: const [
-          BoxShadow(
-              color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3)),
-        ],
+  Widget _buildSectionLabel(String title) => Text(
+    title,
+    style: const TextStyle(fontFamily: 'Nunito', fontSize: 13,
+        fontWeight: FontWeight.w800, color: AppColors.textDark),
+  );
+
+  // ── Profile card ──────────────────────────────────────────
+
+  Widget _buildProfileCard() {
+    return _card(child: Column(children: [
+      _textField(ctrl: _nameCtrl, label: 'Full Name',    icon: Icons.person_rounded),
+      _divider(),
+      _textField(ctrl: _ageCtrl, label: 'Age',           icon: Icons.cake_rounded,
+          keyboardType: TextInputType.number),
+      _divider(),
+      _dropdownTile(
+        icon: Icons.wc_rounded, label: 'Gender', value: _gender,
+        items: ['Male', 'Female', 'Other', 'Prefer not to say'],
+        onChanged: (v) { if (v != null) setState(() => _gender = v); },
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: _liveMonitoringOn
-                  ? AppColors.primaryLight
-                  : const Color(0xFFF3F4F6),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              _liveMonitoringOn
-                  ? Icons.mic_rounded
-                  : Icons.mic_off_rounded,
-              color: _liveMonitoringOn
-                  ? AppColors.primary
-                  : AppColors.textMuted,
-              size: 22,
-            ),
-          ),
+      _divider(),
+      _infoRow('Height',
+          LocalStorage.heightFtInch.isNotEmpty
+              ? LocalStorage.heightFtInch
+              : '${LocalStorage.height.round()} ${LocalStorage.heightUnit}',
+          Icons.height_rounded),
+      _divider(),
+      _infoRow('Weight',
+          '${LocalStorage.weight.round()} ${LocalStorage.weightUnit}',
+          Icons.monitor_weight_rounded),
+    ]));
+  }
+
+  // ── Conditions card ───────────────────────────────────────
+
+  Widget _buildConditionsCard() {
+    return _card(child: Column(children: [
+      _conditionTile(
+        emoji: '💨', label: 'Asthma',
+        subtitle: 'Cough detection sensitivity increased',
+        value: _asthma,
+        onChanged: (v) async {
+          setState(() => _asthma = v!);
+          await _saveConditions();
+        },
+      ),
+      _divider(),
+      _conditionTile(
+        emoji: '🤧', label: 'Frequent Cold',
+        subtitle: 'Sneeze detection sensitivity increased',
+        value: _frequentCold,
+        onChanged: (v) async {
+          setState(() => _frequentCold = v!);
+          await _saveConditions();
+        },
+      ),
+      _divider(),
+      _conditionTile(
+        emoji: '😴', label: 'Sleep Issues',
+        subtitle: 'Snore confirmation threshold stricter',
+        value: _sleepIssues,
+        onChanged: (v) async {
+          setState(() => _sleepIssues = v!);
+          await _saveConditions();
+        },
+      ),
+      _divider(),
+      _conditionTile(
+        emoji: '✅', label: 'None',
+        subtitle: 'No known conditions — baseline thresholds',
+        value: !_asthma && !_frequentCold && !_sleepIssues,
+        onChanged: (v) async {
+          if (v == true) {
+            setState(() { _asthma = false; _frequentCold = false; _sleepIssues = false; });
+            await _saveConditions();
+          }
+        },
+      ),
+    ]));
+  }
+
+  // ── Card shell ────────────────────────────────────────────
+
+  Widget _card({required Widget child}) => Container(
+    decoration: appCardDecoration(),
+    child: child,
+  );
+
+  Widget _divider() => const Divider(height: 1, color: AppColors.divider,
+      indent: 18, endIndent: 18);
+
+  // ── Text field tile ───────────────────────────────────────
+
+  Widget _textField({
+    required TextEditingController ctrl,
+    required String label,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+        child: Row(children: [
+          Icon(icon, color: AppColors.primary, size: 20),
           const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Live Health Monitoring',
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
-                    )),
-                const SizedBox(height: 2),
-                Text(
-                  _liveMonitoringOn
-                      ? 'Active — detecting cough, sneeze, snore'
-                      : 'Off — tap to enable continuous monitoring',
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: _liveMonitoringOn
-                        ? AppColors.primary
-                        : AppColors.textMuted,
-                    height: 1.3,
-                  ),
-                ),
-              ],
+          Expanded(child: TextField(
+            controller: ctrl,
+            keyboardType: keyboardType,
+            style: const TextStyle(fontFamily: 'Nunito', fontSize: 14,
+                fontWeight: FontWeight.w700, color: AppColors.textDark),
+            decoration: InputDecoration(
+              labelText: label,
+              labelStyle: const TextStyle(fontFamily: 'Nunito',
+                  fontSize: 12, color: AppColors.textMuted),
+              border: InputBorder.none,
             ),
+          )),
+        ]),
+      );
+
+  // ── Dropdown tile ─────────────────────────────────────────
+
+  Widget _dropdownTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+        child: Row(children: [
+          Icon(icon, color: AppColors.primary, size: 20),
+          const SizedBox(width: 14),
+          Text(label, style: const TextStyle(fontFamily: 'Nunito',
+              fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          const Spacer(),
+          DropdownButton<String>(
+            value: items.contains(value) ? value : items.last,
+            underline: const SizedBox(),
+            style: const TextStyle(fontFamily: 'Nunito', fontSize: 13,
+                fontWeight: FontWeight.w700, color: AppColors.primary),
+            items: items.map((s) => DropdownMenuItem(
+                value: s,
+                child: Text(s, style: const TextStyle(
+                    fontFamily: 'Nunito', fontSize: 13,
+                    fontWeight: FontWeight.w700)))).toList(),
+            onChanged: onChanged,
           ),
-          const SizedBox(width: 8),
-          if (_toggling)
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.primary,
-              ),
-            )
-          else
-            Switch(
-              value: _liveMonitoringOn,
-              onChanged: _handleToggle,
-              activeThumbColor: AppColors.primary,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-        ],
+        ]),
+      );
+
+  // ── Info row ──────────────────────────────────────────────
+
+  Widget _infoRow(String label, String value, IconData icon) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+    child: Row(children: [
+      Icon(icon, color: AppColors.primary, size: 20),
+      const SizedBox(width: 14),
+      Text(label, style: const TextStyle(fontFamily: 'Nunito', fontSize: 14,
+          fontWeight: FontWeight.w700, color: AppColors.textDark)),
+      const Spacer(),
+      Text(value, style: const TextStyle(fontFamily: 'Nunito', fontSize: 13,
+          fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+    ]),
+  );
+
+  // ── Save button ───────────────────────────────────────────
+
+  Widget _buildSaveButton(String label, VoidCallback onTap) =>
+      _TapScaleButton(
+        onTap: onTap,
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppColors.radiusCard)),
+          child: Text(label, style: const TextStyle(fontFamily: 'Nunito',
+              fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+      );
+
+  // ── Condition tile ────────────────────────────────────────
+
+  Widget _conditionTile({
+    required String emoji,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+  }) =>
+      InkWell(
+        onTap: () => onChanged(!value),
+        borderRadius: BorderRadius.circular(AppColors.radiusCard),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: value ? AppColors.primary : AppColors.textDark)),
+              Text(subtitle, style: const TextStyle(fontFamily: 'Nunito',
+                  fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+            ])),
+            Checkbox(value: value, onChanged: onChanged,
+                activeColor: AppColors.primary),
+          ]),
+        ),
+      );
+
+  // ── Live monitoring tile ──────────────────────────────────
+
+  Widget _liveMonitoringTile() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(AppColors.radiusCard),
+      border: Border.all(
+          color: _liveMonitoringOn
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : AppColors.divider,
+          width: 1.5),
+      boxShadow: const [BoxShadow(
+          color: AppColors.shadow, blurRadius: 6, offset: Offset(0, 2))],
+    ),
+    child: Row(children: [
+      Container(
+        width: 44, height: 44,
+        decoration: BoxDecoration(
+            color: _liveMonitoringOn ? AppColors.primaryLight : const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(12)),
+        child: Icon(
+            _liveMonitoringOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+            color: _liveMonitoringOn ? AppColors.primary : AppColors.textMuted,
+            size: 22),
       ),
-    );
-  }
+      const SizedBox(width: 14),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Live Health Monitoring', style: TextStyle(fontFamily: 'Nunito',
+            fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+        Text(
+          _liveMonitoringOn
+              ? 'Active — detecting cough, sneeze, snore'
+              : 'Off — tap to enable continuous monitoring',
+          style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _liveMonitoringOn ? AppColors.good : AppColors.textMuted),
+        ),
+      ])),
+      if (_toggling)
+        const SizedBox(width: 24, height: 24,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.primary))
+      else
+        Switch(value: _liveMonitoringOn, onChanged: _handleToggle,
+            activeTrackColor: AppColors.primary),
+    ]),
+  );
 
-  // ── Health Condition Selector (Part 5) ────────────────────────
+  // ── Notification tile ─────────────────────────────────────
 
-  Widget _buildConditionSubtitle() {
-    return Text(
-      'Tell Predoc about your health so it can adjust detection sensitivity.',
-      style: TextStyle(
-        fontFamily: 'Nunito',
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: AppColors.textMuted,
-        height: 1.4,
-      ),
-    );
-  }
+  Widget _notificationTile() => _TapScaleButton(
+    onTap: _pickNotificationTime,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: appCardDecoration(),
+      child: Row(children: [
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.notifications_active_rounded,
+              color: AppColors.primary, size: 22)),
+        const SizedBox(width: 14),
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Daily Reminder Time', style: TextStyle(fontFamily: 'Nunito',
+              fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+          Text('Tap to change reminder time', style: TextStyle(
+              fontFamily: 'Nunito', fontSize: 12, fontWeight: FontWeight.w600,
+              color: AppColors.textMuted)),
+        ])),
+        Text(_notificationTime, style: const TextStyle(fontFamily: 'Nunito',
+            fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.primary)),
+        const SizedBox(width: 6),
+        const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 20),
+      ]),
+    ),
+  );
 
-  Widget _buildConditionSelector() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(
-              color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3)),
-        ],
-      ),
-      child: Column(
-        children: HealthCondition.values.map((condition) {
-          final isSelected = condition == _condition;
-          final isLast =
-              condition == HealthCondition.values.last;
-          return Column(
-            children: [
-              InkWell(
-                onTap: () => _onConditionChanged(condition),
-                borderRadius: BorderRadius.vertical(
-                  top: condition == HealthCondition.none
-                      ? const Radius.circular(18)
-                      : Radius.zero,
-                  bottom: isLast ? const Radius.circular(18) : Radius.zero,
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.primaryLight
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.vertical(
-                      top: condition == HealthCondition.none
-                          ? const Radius.circular(18)
-                          : Radius.zero,
-                      bottom:
-                          isLast ? const Radius.circular(18) : Radius.zero,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        condition.emoji,
-                        style: const TextStyle(fontSize: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              condition.label,
-                              style: TextStyle(
-                                fontFamily: 'Nunito',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : AppColors.textDark,
-                              ),
-                            ),
-                            Text(
-                              condition.description,
-                              style: const TextStyle(
-                                fontFamily: 'Nunito',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textMuted,
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (isSelected)
-                        const Icon(Icons.check_circle_rounded,
-                            color: AppColors.primary, size: 20)
-                      else
-                        const Icon(Icons.circle_outlined,
-                            color: AppColors.divider, size: 20),
-                    ],
-                  ),
-                ),
-              ),
-              if (!isLast)
-                const Divider(
-                    height: 1,
-                    indent: 18,
-                    endIndent: 18,
-                    color: AppColors.divider),
-            ],
-          );
-        }).toList(),
-      ),
-    );
-  }
+  // ── Info tile ─────────────────────────────────────────────
 
-  // ── Shared helpers ────────────────────────────────────────────
-
-  Widget _buildSectionHeader(String title) {
-    return Text(
-      title.toUpperCase(),
-      style: const TextStyle(
-        fontFamily: 'Nunito',
-        fontSize: 11,
-        fontWeight: FontWeight.w800,
-        color: AppColors.textMuted,
-        letterSpacing: 1.2,
-      ),
-    );
-  }
-
-  Widget _buildInfoTile({
+  Widget _infoTile({
     required IconData icon,
     required String title,
     required String subtitle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-              color: AppColors.shadow, blurRadius: 6, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  }) =>
+      Container(
+        padding: const EdgeInsets.all(AppColors.paddingV),
+        decoration: appCardDecoration(),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 18),
-          ),
+            width: 36, height: 36,
+            decoration: BoxDecoration(color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: AppColors.primary, size: 18)),
           const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
-                    )),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style: const TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMuted,
-                      height: 1.4,
-                    )),
-              ],
-            ),
-          ),
-        ],
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontFamily: 'Nunito', fontSize: 13,
+                fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            const SizedBox(height: 2),
+            Text(subtitle, style: const TextStyle(fontFamily: 'Nunito', fontSize: 12,
+                fontWeight: FontWeight.w600, color: AppColors.textMuted, height: 1.4)),
+          ])),
+        ]),
+      );
+}
+
+// ── Tap Scale Button ───────────────────────────────────────────
+
+class _TapScaleButton extends StatefulWidget {
+  final VoidCallback onTap;
+  final Widget child;
+  const _TapScaleButton({required this.onTap, required this.child});
+  @override
+  State<_TapScaleButton> createState() => _TapScaleButtonState();
+}
+
+class _TapScaleButtonState extends State<_TapScaleButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double>   _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 120));
+    _scale = Tween<double>(begin: 1.0, end: 0.97)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  Future<void> _handleTap() async {
+    await _ctrl.forward();
+    await _ctrl.reverse();
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: widget.child,
       ),
     );
   }
