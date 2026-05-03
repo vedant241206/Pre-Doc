@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../utils/local_storage.dart';
+import '../services/firebase_service.dart';
 
 class BasicInfoScreen extends StatefulWidget {
   const BasicInfoScreen({super.key});
@@ -43,17 +44,171 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
 
   // ── Error map ──
   final Map<String, String?> _errors = {
-    'name':    null,
-    'gender':  null,
-    'dob':     null,
-    'height':  null,
+    'name': null,
+    'gender': null,
+    'dob': null,
+    'height': null,
     'country': null,
-    'city':    null,
+    'city': null,
   };
 
-  // ── Location ──
-  final TextEditingController _countryCtrl = TextEditingController();
-  final TextEditingController _cityCtrl    = TextEditingController();
+  // ── Country / city string state (synced with Autocomplete) ──
+  String _countryStr = '';
+  String _cityStr = '';
+
+  // ── Static lists for Autocomplete ──
+  static const List<String> _countries = [
+    'Afghanistan',
+    'Albania',
+    'Algeria',
+    'Argentina',
+    'Australia',
+    'Austria',
+    'Bangladesh',
+    'Belgium',
+    'Brazil',
+    'Canada',
+    'Chile',
+    'China',
+    'Colombia',
+    'Czech Republic',
+    'Denmark',
+    'Egypt',
+    'Ethiopia',
+    'Finland',
+    'France',
+    'Germany',
+    'Ghana',
+    'Greece',
+    'Hungary',
+    'India',
+    'Indonesia',
+    'Iran',
+    'Iraq',
+    'Ireland',
+    'Israel',
+    'Italy',
+    'Japan',
+    'Jordan',
+    'Kenya',
+    'Malaysia',
+    'Mexico',
+    'Morocco',
+    'Myanmar',
+    'Nepal',
+    'Netherlands',
+    'New Zealand',
+    'Nigeria',
+    'Norway',
+    'Pakistan',
+    'Peru',
+    'Philippines',
+    'Poland',
+    'Portugal',
+    'Romania',
+    'Russia',
+    'Saudi Arabia',
+    'Singapore',
+    'South Africa',
+    'South Korea',
+    'Spain',
+    'Sri Lanka',
+    'Sudan',
+    'Sweden',
+    'Switzerland',
+    'Syria',
+    'Taiwan',
+    'Tanzania',
+    'Thailand',
+    'Turkey',
+    'Ukraine',
+    'United Arab Emirates',
+    'United Kingdom',
+    'United States',
+    'Venezuela',
+    'Vietnam',
+    'Yemen',
+  ];
+
+  static const List<String> _cities = [
+    'Abu Dhabi',
+    'Ahmedabad',
+    'Alexandria',
+    'Amsterdam',
+    'Ankara',
+    'Atlanta',
+    'Auckland',
+    'Baghdad',
+    'Bangkok',
+    'Barcelona',
+    'Beijing',
+    'Bengaluru',
+    'Berlin',
+    'Bogota',
+    'Brussels',
+    'Buenos Aires',
+    'Cairo',
+    'Casablanca',
+    'Chennai',
+    'Chicago',
+    'Colombo',
+    'Dallas',
+    'Delhi',
+    'Dhaka',
+    'Dubai',
+    'Dublin',
+    'Guangzhou',
+    'Ho Chi Minh City',
+    'Hong Kong',
+    'Houston',
+    'Hyderabad',
+    'Istanbul',
+    'Jakarta',
+    'Johannesburg',
+    'Karachi',
+    'Kathmandu',
+    'Kolkata',
+    'Kuala Lumpur',
+    'Lagos',
+    'Lahore',
+    'Lima',
+    'London',
+    'Los Angeles',
+    'Madrid',
+    'Manila',
+    'Melbourne',
+    'Mexico City',
+    'Miami',
+    'Milan',
+    'Moscow',
+    'Mumbai',
+    'Nairobi',
+    'New York',
+    'Oslo',
+    'Paris',
+    'Perth',
+    'Prague',
+    'Pune',
+    'Riyadh',
+    'Rome',
+    'Santiago',
+    'Sao Paulo',
+    'Seoul',
+    'Shanghai',
+    'Shenzhen',
+    'Singapore',
+    'Stockholm',
+    'Sydney',
+    'Taipei',
+    'Tehran',
+    'Tokyo',
+    'Toronto',
+    'Vienna',
+    'Warsaw',
+    'Washington DC',
+    'Wuhan',
+    'Zurich',
+  ];
 
   @override
   void initState() {
@@ -91,12 +246,12 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
         }
       }
     }
-    _weightKg   = LocalStorage.weight;
+    _weightKg = LocalStorage.weight;
     _weightUnit = LocalStorage.weightUnit;
 
     // Pre-fill country/city
-    _countryCtrl.text = LocalStorage.country;
-    _cityCtrl.text    = LocalStorage.city;
+    _countryStr = LocalStorage.country;
+    _cityStr = LocalStorage.city;
   }
 
   @override
@@ -107,8 +262,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     _heightCmCtrl.dispose();
     _heightFtCtrl.dispose();
     _heightInCtrl.dispose();
-    _countryCtrl.dispose();
-    _cityCtrl.dispose();
     super.dispose();
   }
 
@@ -125,6 +278,39 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
 
   String _formatDate(DateTime d) =>
       '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}/${d.year}';
+
+  // ── BMI Helpers ──
+  double? get _currentHeightCm {
+    if (_heightUnit == 'cm') {
+      return double.tryParse(_heightCmCtrl.text);
+    } else {
+      final ft = int.tryParse(_heightFtCtrl.text);
+      final inch = int.tryParse(_heightInCtrl.text);
+      if (ft == null) return null;
+      return (ft * 30.48) + ((inch ?? 0) * 2.54);
+    }
+  }
+
+  double? get _bmi {
+    final h = _currentHeightCm;
+    if (h == null || h < 50) return null;
+    final hM = h / 100.0;
+    return _weightKg / (hM * hM);
+  }
+
+  String _bmiCategory(double bmi) {
+    if (bmi < 18.5) return 'Underweight';
+    if (bmi < 25.0) return 'Normal';
+    if (bmi < 30.0) return 'Overweight';
+    return 'Obese';
+  }
+
+  Color _bmiColor(double bmi) {
+    if (bmi < 18.5) return const Color(0xFF2563EB); // blue
+    if (bmi < 25.0) return AppColors.good; // green
+    if (bmi < 30.0) return AppColors.moderate; // orange
+    return AppColors.risk; // red
+  }
 
   double get _displayWeight =>
       _weightUnit == 'kg' ? _weightKg : _weightKg * 2.20462;
@@ -164,16 +350,16 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
         }
       }
 
-      _errors['country'] = _countryCtrl.text.trim().isEmpty
-          ? 'Please enter your country' : null;
-      _errors['city'] = _cityCtrl.text.trim().isEmpty
-          ? 'Please enter your city' : null;
+      _errors['country'] =
+          _countryStr.trim().isEmpty ? 'Please enter your country' : null;
+      _errors['city'] =
+          _cityStr.trim().isEmpty ? 'Please enter your city' : null;
 
-      if (_errors['name']   != null)  ok = false;
-      if (_errors['gender'] != null)  ok = false;
-      if (_errors['dob']    != null)  ok = false;
+      if (_errors['name'] != null) ok = false;
+      if (_errors['gender'] != null) ok = false;
+      if (_errors['dob'] != null) ok = false;
       if (_errors['country'] != null) ok = false;
-      if (_errors['city']    != null) ok = false;
+      if (_errors['city'] != null) ok = false;
     });
     return ok;
   }
@@ -198,7 +384,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
       await LocalStorage.setHeight(double.parse(_heightCmCtrl.text));
     } else {
       final ft = int.parse(_heightFtCtrl.text);
-      final inch = int.parse(_heightInCtrl.text.isEmpty ? '0' : _heightInCtrl.text);
+      final inch =
+          int.parse(_heightInCtrl.text.isEmpty ? '0' : _heightInCtrl.text);
       final totalCm = (ft * 30.48) + (inch * 2.54);
       await LocalStorage.setHeight(totalCm);
       await LocalStorage.setHeightFtInch("$ft'$inch");
@@ -210,11 +397,14 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
     await LocalStorage.setWeight(kgToSave);
 
     // Save country + city
-    await LocalStorage.setCountry(_countryCtrl.text.trim());
-    await LocalStorage.setCity(_cityCtrl.text.trim());
+    await LocalStorage.setCountry(_countryStr.trim());
+    await LocalStorage.setCity(_cityStr.trim());
 
     // Mark done
     await LocalStorage.setBasicInfoDone();
+
+    // Sync to Firestore
+    await FirebaseService.syncUserData();
 
     // Animate progress bar
     _progressController.forward();
@@ -316,6 +506,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                     _buildHeightSection(),
                     const SizedBox(height: 28),
                     _buildWeightSection(),
+                    const SizedBox(height: 20),
+                    _buildBmiCard(),
                     const SizedBox(height: 28),
                     _buildLocationSection(),
                     const SizedBox(height: 32),
@@ -395,7 +587,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
               borderRadius: BorderRadius.circular(50),
             ),
             child: const Text(
-              'STEP 1 OF 4',
+              'STEP 2 OF 3',
               style: TextStyle(
                 fontFamily: 'Nunito',
                 fontSize: 11,
@@ -483,8 +675,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                 child: TextField(
                   controller: _nameCtrl,
                   textCapitalization: TextCapitalization.words,
-                  onChanged: (_) =>
-                      setState(() => _errors['name'] = null),
+                  onChanged: (_) => setState(() => _errors['name'] = null),
                   style: const TextStyle(
                     fontFamily: 'Nunito',
                     fontSize: 16,
@@ -650,8 +841,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                 ),
                 if (_calculatedAge != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppColors.primaryLight,
                       borderRadius: BorderRadius.circular(50),
@@ -710,9 +901,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
           duration: const Duration(milliseconds: 300),
           transitionBuilder: (child, anim) =>
               FadeTransition(opacity: anim, child: child),
-          child: _heightUnit == 'cm'
-              ? _heightCmField()
-              : _heightFtInchFields(),
+          child: _heightUnit == 'cm' ? _heightCmField() : _heightFtInchFields(),
         ),
         if (_errors['height'] != null) ...[
           const SizedBox(height: 6),
@@ -862,7 +1051,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
                       const RoundSliderOverlayShape(overlayRadius: 22),
                 ),
                 child: Slider(
-                  value: _displayWeight.clamp(_weightSliderMin, _weightSliderMax),
+                  value:
+                      _displayWeight.clamp(_weightSliderMin, _weightSliderMax),
                   min: _weightSliderMin,
                   max: _weightSliderMax,
                   divisions: (_weightSliderMax - _weightSliderMin).toInt() * 2,
@@ -910,7 +1100,83 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
   }
 
   // ─────────────────────────────────────────────
-  // LOCATION SECTION — country + city for leaderboard
+  // BMI CARD — live calculation
+  // ─────────────────────────────────────────────
+  Widget _buildBmiCard() {
+    final bmi = _bmi;
+    if (bmi == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.primaryLight,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(children: [
+          Icon(Icons.calculate_rounded, color: AppColors.primary, size: 20),
+          SizedBox(width: 10),
+          Text('Enter height & weight to see BMI',
+              style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMuted)),
+        ]),
+      );
+    }
+    final category = _bmiCategory(bmi);
+    final color = _bmiColor(bmi);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.5),
+      ),
+      child: Row(children: [
+        Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15), shape: BoxShape.circle),
+            child: Icon(Icons.monitor_heart_rounded, color: color, size: 26)),
+        const SizedBox(width: 16),
+        Expanded(
+            child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your BMI',
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textMuted)),
+            const SizedBox(height: 2),
+            Text(bmi.toStringAsFixed(1),
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                    height: 1.1)),
+          ],
+        )),
+        Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(50)),
+            child: Text(category,
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: color))),
+      ]),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // LOCATION SECTION — Autocomplete country + city
   // ─────────────────────────────────────────────
   Widget _buildLocationSection() {
     return Column(
@@ -921,107 +1187,42 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
         const Text(
           'Used for leaderboard country & city filters.',
           style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textMuted,
-          ),
+              fontFamily: 'Nunito',
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textMuted),
         ),
         const SizedBox(height: 14),
-        // Country field
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.primaryLight,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _errors['country'] != null
-                  ? AppColors.accentRed
-                  : Colors.transparent,
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.flag_rounded,
-                  color: AppColors.primary, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _countryCtrl,
-                  textCapitalization: TextCapitalization.words,
-                  onChanged: (_) =>
-                      setState(() => _errors['country'] = null),
-                  style: const TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'e.g. India',
-                    hintStyle: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+
+        // ── Country Autocomplete ──
+        _SearchableField(
+          icon: Icons.flag_rounded,
+          hintText: 'e.g. India',
+          initialValue: _countryStr,
+          suggestions: _countries,
+          hasError: _errors['country'] != null,
+          onChanged: (val) => setState(() {
+            _countryStr = val;
+            _errors['country'] = null;
+          }),
         ),
         if (_errors['country'] != null) ...[
           const SizedBox(height: 6),
           _errorText(_errors['country']!),
         ],
         const SizedBox(height: 14),
-        // City field
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.primaryLight,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _errors['city'] != null
-                  ? AppColors.accentRed
-                  : Colors.transparent,
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.location_city_rounded,
-                  color: AppColors.primary, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _cityCtrl,
-                  textCapitalization: TextCapitalization.words,
-                  onChanged: (_) =>
-                      setState(() => _errors['city'] = null),
-                  style: const TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'e.g. Mumbai',
-                    hintStyle: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+
+        // ── City Autocomplete ──
+        _SearchableField(
+          icon: Icons.location_city_rounded,
+          hintText: 'e.g. Mumbai',
+          initialValue: _cityStr,
+          suggestions: _cities,
+          hasError: _errors['city'] != null,
+          onChanged: (val) => setState(() {
+            _cityStr = val;
+            _errors['city'] = null;
+          }),
         ),
         if (_errors['city'] != null) ...[
           const SizedBox(height: 6),
@@ -1370,6 +1571,113 @@ class _BasicInfoScreenState extends State<BasicInfoScreen>
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCHABLE FIELD — Autocomplete text field for country / city
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SearchableField extends StatelessWidget {
+  final IconData icon;
+  final String hintText;
+  final String initialValue;
+  final List<String> suggestions;
+  final bool hasError;
+  final ValueChanged<String> onChanged;
+
+  const _SearchableField({
+    required this.icon,
+    required this.hintText,
+    required this.initialValue,
+    required this.suggestions,
+    required this.hasError,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Autocomplete<String>(
+      initialValue: TextEditingValue(text: initialValue),
+      optionsBuilder: (TextEditingValue textValue) {
+        final q = textValue.text.toLowerCase();
+        if (q.isEmpty) return const Iterable<String>.empty();
+        return suggestions.where((s) => s.toLowerCase().contains(q)).take(6);
+      },
+      onSelected: (String selection) => onChanged(selection),
+      optionsViewBuilder: (context, onSelected, options) => Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(14),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final option = options.elementAt(index);
+                return InkWell(
+                  onTap: () => onSelected(option),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    child: Text(option,
+                        style: const TextStyle(
+                            fontFamily: 'Nunito',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textDark)),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+      fieldViewBuilder: (context, textCtrl, focusNode, onFieldSubmitted) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: hasError ? AppColors.accentRed : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(children: [
+            Icon(icon, color: AppColors.primary, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: textCtrl,
+                focusNode: focusNode,
+                textCapitalization: TextCapitalization.words,
+                onChanged: onChanged,
+                style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textDark),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  hintText: hintText,
+                  hintStyle: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMuted),
+                ),
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down_rounded,
+                color: AppColors.textMuted, size: 22),
+          ]),
+        );
+      },
     );
   }
 }

@@ -2,13 +2,13 @@
 // Logic unchanged. UI polished: Profile / Health Conditions / App Settings sections.
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../services/continuous_audio_service.dart';
 import '../services/storage_service.dart';
 import '../services/user_context_service.dart';
 import '../utils/local_storage.dart';
 import '../app_services.dart';
+import '../services/firebase_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,8 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _frequentCold;
   late bool _sleepIssues;
 
-  bool _liveMonitoringOn = false;
-  bool _toggling         = false;
+  bool _isLinkingAccount = false;
   late String _notificationTime;
 
   @override
@@ -41,7 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _asthma           = StorageService.condAsthma;
     _frequentCold     = StorageService.condFrequentCold;
     _sleepIssues      = StorageService.condSleepIssues;
-    _liveMonitoringOn = StorageService.liveMonitoringEnabled;
+    _sleepIssues      = StorageService.condSleepIssues;
     _notificationTime = StorageService.notificationTime;
   }
 
@@ -57,6 +56,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final age = int.tryParse(_ageCtrl.text.trim()) ?? 0;
     await StorageService.setUserAge(age);
     await LocalStorage.setGender(_gender);
+    
+    // Sync to Firestore
+    await FirebaseService.syncUserData();
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: const Text('Profile saved',
@@ -78,36 +81,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'sneeze=${p.sneezeThreshold} snore=${p.snoreThreshold}');
   }
 
-  Future<void> _handleToggle(bool value) async {
-    if (_toggling) return;
-    if (value) {
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Microphone permission required.',
-                style: TextStyle(fontFamily: 'Nunito')),
-            backgroundColor: AppColors.risk,
-          ));
-        }
-        return;
-      }
-      setState(() => _toggling = true);
-      try {
-        if (!appModelService.isLoaded) await appModelService.loadModels();
-        await _continuousAudio.start();
-        await StorageService.setLiveMonitoringEnabled(true);
-        if (mounted) setState(() { _liveMonitoringOn = true; _toggling = false; });
-      } catch (_) {
-        if (mounted) setState(() => _toggling = false);
-      }
-    } else {
-      setState(() => _toggling = true);
-      await _continuousAudio.stop();
-      await StorageService.setLiveMonitoringEnabled(false);
-      if (mounted) setState(() { _liveMonitoringOn = false; _toggling = false; });
-    }
-  }
 
   Future<void> _pickNotificationTime() async {
     final parts   = _notificationTime.split(':');
@@ -120,6 +93,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           '${picked.minute.toString().padLeft(2, '0')}';
       await StorageService.setNotificationTime(str);
       if (mounted) setState(() => _notificationTime = str);
+    }
+  }
+
+  Future<void> _linkAccount() async {
+    setState(() => _isLinkingAccount = true);
+    try {
+      final user = await FirebaseService.signInWithGoogle();
+      if (user != null) {
+        await LocalStorage.setSkipAuth(false);
+        await FirebaseService.syncUserData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Account linked successfully!', style: TextStyle(fontFamily: 'Nunito')),
+            backgroundColor: AppColors.accentGreen,
+          ));
+        }
+        setState(() {}); // refresh UI to hide the link card
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Failed to link account.', style: TextStyle(fontFamily: 'Nunito')),
+            backgroundColor: AppColors.risk,
+          ));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error linking account: $e', style: const TextStyle(fontFamily: 'Nunito')),
+          backgroundColor: AppColors.risk,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isLinkingAccount = false);
     }
   }
 
@@ -144,6 +151,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.symmetric(
             horizontal: AppColors.paddingH, vertical: AppColors.paddingV),
         children: [
+          // ── Guest Account Linking ───────────────────────────────
+          if (LocalStorage.skipAuth) ...[
+            _buildSectionLabel('🔗  Guest Profile'),
+            const SizedBox(height: 10),
+            _card(child: Column(children: [
+              _infoTile(
+                icon: Icons.account_circle_rounded,
+                title: 'Link Your Account',
+                subtitle: 'Your progress is only stored on this device. Link a Google account to save to the cloud and access the leaderboard.',
+              ),
+              _divider(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                child: _isLinkingAccount
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                    : _buildSaveButton('Link Google Account', _linkAccount),
+              ),
+            ])),
+            const SizedBox(height: AppColors.sectionGap),
+          ],
+
           // ── Profile Card ──────────────────────────────────────
           _buildSectionLabel('👤  Profile'),
           const SizedBox(height: 10),
@@ -167,8 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // ── App Settings ──────────────────────────────────────
           _buildSectionLabel('⚙️  App Settings'),
           const SizedBox(height: 10),
-          _liveMonitoringTile(),
-          const SizedBox(height: 10),
+
           _notificationTile(),
 
           const SizedBox(height: AppColors.sectionGap),
@@ -403,54 +430,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
 
-  // ── Live monitoring tile ──────────────────────────────────
-
-  Widget _liveMonitoringTile() => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(AppColors.radiusCard),
-      border: Border.all(
-          color: _liveMonitoringOn
-              ? AppColors.primary.withValues(alpha: 0.3)
-              : AppColors.divider,
-          width: 1.5),
-      boxShadow: const [BoxShadow(
-          color: AppColors.shadow, blurRadius: 6, offset: Offset(0, 2))],
-    ),
-    child: Row(children: [
-      Container(
-        width: 44, height: 44,
-        decoration: BoxDecoration(
-            color: _liveMonitoringOn ? AppColors.primaryLight : const Color(0xFFF3F4F6),
-            borderRadius: BorderRadius.circular(12)),
-        child: Icon(
-            _liveMonitoringOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-            color: _liveMonitoringOn ? AppColors.primary : AppColors.textMuted,
-            size: 22),
-      ),
-      const SizedBox(width: 14),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Live Health Monitoring', style: TextStyle(fontFamily: 'Nunito',
-            fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-        Text(
-          _liveMonitoringOn
-              ? 'Active — detecting cough, sneeze, snore'
-              : 'Off — tap to enable continuous monitoring',
-          style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: _liveMonitoringOn ? AppColors.good : AppColors.textMuted),
-        ),
-      ])),
-      if (_toggling)
-        const SizedBox(width: 24, height: 24,
-            child: CircularProgressIndicator(
-                strokeWidth: 2, color: AppColors.primary))
-      else
-        Switch(value: _liveMonitoringOn, onChanged: _handleToggle,
-            activeTrackColor: AppColors.primary),
-    ]),
-  );
 
   // ── Notification tile ─────────────────────────────────────
 

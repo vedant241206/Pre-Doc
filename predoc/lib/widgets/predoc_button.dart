@@ -9,6 +9,7 @@ class PredocButton extends StatefulWidget {
   final IconData? suffixIcon;
   final Color? backgroundColor;
   final Color? textColor;
+  final Widget? prefixWidget;
 
   const PredocButton({
     super.key,
@@ -19,6 +20,7 @@ class PredocButton extends StatefulWidget {
     this.suffixIcon,
     this.backgroundColor,
     this.textColor,
+    this.prefixWidget,
   });
 
   @override
@@ -94,6 +96,10 @@ class _PredocButtonState extends State<PredocButton>
             mainAxisSize:
                 widget.isFullWidth ? MainAxisSize.max : MainAxisSize.min,
             children: [
+              if (widget.prefixWidget != null) ...[
+                widget.prefixWidget!,
+                const SizedBox(width: 10),
+              ],
               Text(
                 widget.label,
                 style: TextStyle(

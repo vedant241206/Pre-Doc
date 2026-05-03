@@ -1,9 +1,9 @@
-// AskAiScreen — Day 12 UI Refinement
+// AskAiScreen — Network Fixed: real errors + retry
 //
 // RULE: Only send a short summary string to Pollinations — NO full health history.
-// Logic / API calls are unchanged from Day 10.
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
@@ -11,7 +11,8 @@ import '../services/storage_service.dart';
 import '../services/insight_service.dart';
 
 class AskAiScreen extends StatefulWidget {
-  const AskAiScreen({super.key});
+  final String? initialQuery;
+  const AskAiScreen({super.key, this.initialQuery});
   @override
   State<AskAiScreen> createState() => _AskAiScreenState();
 }
@@ -46,6 +47,13 @@ class _AskAiScreenState extends State<AskAiScreen>
     _dot1Ctrl = _makeDotCtrl(0);
     _dot2Ctrl = _makeDotCtrl(200);
     _dot3Ctrl = _makeDotCtrl(400);
+
+    if (widget.initialQuery != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ctrl.text = widget.initialQuery!;
+        _send();
+      });
+    }
   }
 
   AnimationController _makeDotCtrl(int delayMs) {
@@ -90,9 +98,26 @@ class _AskAiScreenState extends State<AskAiScreen>
         'Today — coughs: $cough, sneezes: $sneeze, snores: $snore.';
   }
 
-  // ── Call Pollinations API (unchanged logic) ───────────────
+  // ── Internet connectivity check ───────────────────────────
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 4));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Call Pollinations with retry ──────────────────────────
   Future<String> _callPollinations(String userQuestion) async {
-    final summary    = _buildSummary();
+    // Step 1: Check internet
+    final online = await _hasInternet();
+    if (!online) {
+      return '📡 No internet connection. Please check your Wi-Fi or mobile data and try again.';
+    }
+
+    final summary = _buildSummary();
     final systemPrompt =
         'You are Predoc AI, an extremely smart, engaging health assistant. '
         'RULES:\n'
@@ -107,52 +132,43 @@ About the app:
 Predoc is an offline-first health monitoring app that analyzes user behavior and sensor data to give early lifestyle-based health insights (not medical diagnosis).
 
 Core features of Predoc:
-
 * Audio Monitoring: Detects cough, sneeze, and snoring using on-device audio analysis
-* Health Score: Calculated using fixed rule-based logic based on daily activity and health signals
+* Health Score: Calculated using fixed rule-based logic based on daily activity
 * Habit Tracking: Detects patterns like late-night usage, inactivity, and worsening trends
-* Predictions: Warns about possible issues based on trends (e.g., sleep decline, respiratory increase)
 * Notifications: Sends smart daily alerts based on health data
-* Your Tree: A gamified plant that grows when the user maintains good health streaks
+* Your Tree: A gamified plant that grows when the user maintains good health
 * Device Test: Tests microphone and camera to ensure sensors are working properly
 * Med Check: AI-based conversational assistant for general guidance (not diagnosis)
 * Nearby Doctor: Helps find nearby doctors using location and opens maps
-* Settings: Allows user to edit profile, health conditions, and app preferences
-
-Important rules:
-
-* All health analysis in the app is rule-based and already calculated by the system
-* You must NOT override or contradict app-generated health scores or insights
-
-Your role:
-
-* Explain health patterns in simple terms
-* Suggest basic lifestyle improvements
-* Help users understand app features and how to use them
-* Guide users if they are confused about any screen or function
 
 Safety rules:
-
 * Do NOT give medical diagnosis
 * Do NOT give emergency or critical medical advice
 * Use safe language like "possible", "may indicate", "consider"
 * Keep answers simple, clear, and practical
-
-You may receive user data like:
-(cough_count, sneeze_count, snore_count, sleep_pattern, activity_level)
-
-Your goal is to assist, guide, and simplify — not replace a doctor or the app's logic.
 '''
-        'User context (do NOT repeat this to user): $summary';
+        'User context (do NOT repeat this to user): $summary\n'
+        'Random Seed to force variety: ${DateTime.now().millisecondsSinceEpoch}';
 
     final body = jsonEncode({
       'messages': [
         {'role': 'system', 'content': systemPrompt},
-        {'role': 'user',   'content': userQuestion}
+        {'role': 'user', 'content': userQuestion},
       ],
-      'model': 'openai'
+      'model': 'openai',
+      'seed': DateTime.now().millisecondsSinceEpoch % 100000,
     });
 
+    // Step 2: First attempt
+    String? result = await _doPost(body);
+    // Step 3: Retry once if first attempt failed
+    result ??= await _doPost(body);
+
+    return result ?? '🔧 Server error. The AI service is temporarily unavailable. Please try again in a moment.';
+  }
+
+  /// Makes a single POST attempt. Returns null on any failure.
+  Future<String?> _doPost(String body) async {
     try {
       final response = await http
           .post(
@@ -160,17 +176,19 @@ Your goal is to assist, guide, and simplify — not replace a doctor or the app'
             headers: {'Content-Type': 'application/json'},
             body: body,
           )
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
-        return response.body.trim().isNotEmpty
-            ? response.body.trim()
-            : 'No response received.';
+        final text = response.body.trim();
+        return text.isNotEmpty ? text : null;
       } else {
-        return 'Error ${response.statusCode}: Could not fetch response.';
+        // 4xx / 5xx
+        return '🔧 Server error (${response.statusCode}). Please try again.';
       }
-    } catch (e) {
-      return 'Connection error. Please check your internet and try again.';
+    } on SocketException {
+      return null; // no connection — will retry
+    } catch (_) {
+      return null; // timeout or other — will retry
     }
   }
 
@@ -210,13 +228,18 @@ Your goal is to assist, guide, and simplify — not replace a doctor or the app'
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _buildHeader(),
-        Expanded(child: _buildChatBody()),
-        _buildDisclaimer(),
-        _buildInputBar(),
-      ],
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(child: _buildChatBody()),
+            _buildDisclaimer(),
+            _buildInputBar(),
+          ],
+        ),
+      ),
     );
   }
 
@@ -239,6 +262,13 @@ Your goal is to assist, guide, and simplify — not replace a doctor or the app'
       ),
       child: Row(
         children: [
+          if (Navigator.canPop(context)) ...[
+            IconButton(
+              icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textDark),
+              onPressed: () => Navigator.pop(context),
+            ),
+            const SizedBox(width: 4),
+          ],
           // Avatar with online dot
           Stack(
             children: [

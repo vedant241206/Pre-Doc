@@ -26,9 +26,9 @@ enum _TestPhase { idle, micTest, micDone, cameraTest, cameraDone, allDone }
 class _DeviceTestScreenState extends State<DeviceTestScreen>
     with TickerProviderStateMixin {
   // ── Services ──
-  final ModelService   _modelService  = ModelService();
-  late AudioService    _audioService;
-  late CameraService   _cameraService;
+  final ModelService _modelService = ModelService();
+  late AudioService _audioService;
+  late CameraService _cameraService;
   final InsightService _insightService = const InsightService();
 
   // ── State ──
@@ -36,9 +36,9 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   int _countdown = 10;
 
   AudioDetectionResult _audioResult = const AudioDetectionResult(
-    coughCount:    0,
-    sneezeCount:   0,
-    snoreCount:    0,
+    coughCount: 0,
+    sneezeCount: 0,
+    snoreCount: 0,
     waveformSamples: [],
     dominantLabel: 'No strong signal',
   );
@@ -46,9 +46,9 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   InsightResult? _insightResult;
 
   // ── Live probabilities (updated per YAMNet window) ──
-  double _liveCough  = 0.0;
+  double _liveCough = 0.0;
   double _liveSneeze = 0.0;
-  double _liveSnore  = 0.0;
+  double _liveSnore = 0.0;
 
   // ── Live amplitude for waveform ──
   final List<double> _waveformBars = List.filled(30, 0.1);
@@ -58,20 +58,20 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   DateTime? _sessionStart;
 
   // ── Calibration panel state ──
-  bool _showRawLogs   = false;
+  bool _showRawLogs = false;
   bool _showCalibPanel = false;
 
   // ── Progress animation ──
   late AnimationController _progressController;
-  late Animation<double>   _progressAnim;
+  late Animation<double> _progressAnim;
 
   // ── Pulse animation for mic button ──
   late AnimationController _pulseController;
-  late Animation<double>   _pulseAnim;
+  late Animation<double> _pulseAnim;
 
   // ── Camera scan animation ──
   late AnimationController _scanController;
-  late Animation<double>   _scanAnim;
+  late Animation<double> _scanAnim;
 
   // ── Camera streaming ──
   StreamSubscription<CameraResult>? _cameraStream;
@@ -80,7 +80,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   void initState() {
     super.initState();
 
-    _audioService  = AudioService(_modelService);
+    _audioService = AudioService(_modelService);
     _cameraService = CameraService(_modelService);
 
     // Load ML models in background (non-blocking)
@@ -126,9 +126,9 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     _audioService.onWindowProbs = (cough, sneeze, snore) {
       if (!mounted) return;
       setState(() {
-        _liveCough  = cough;
+        _liveCough = cough;
         _liveSneeze = sneeze;
-        _liveSnore  = snore;
+        _liveSnore = snore;
       });
     };
   }
@@ -157,11 +157,11 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   Future<void> _startMicTest() async {
     _sessionStart = DateTime.now();
     setState(() {
-      _phase       = _TestPhase.micTest;
-      _countdown   = 10;
-      _liveCough   = 0.0;
-      _liveSneeze  = 0.0;
-      _liveSnore   = 0.0;
+      _phase = _TestPhase.micTest;
+      _countdown = 10;
+      _liveCough = 0.0;
+      _liveSneeze = 0.0;
+      _liveSnore = 0.0;
       _waveformBars.fillRange(0, _waveformBars.length, 0.1);
       _waveformIndex = 0;
     });
@@ -178,7 +178,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     if (!mounted) return;
     setState(() {
       _audioResult = result;
-      _phase       = _TestPhase.micDone;
+      _phase = _TestPhase.micDone;
     });
   }
 
@@ -187,7 +187,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   // ─────────────────────────────────────────────
   Future<void> _startCameraTest() async {
     setState(() {
-      _phase        = _TestPhase.cameraTest;
+      _phase = _TestPhase.cameraTest;
       _cameraResult = null;
     });
 
@@ -204,7 +204,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
             if (mounted) {
               setState(() {
                 _cameraResult = result;
-                _phase        = _TestPhase.cameraDone;
+                _phase = _TestPhase.cameraDone;
               });
               _cameraStream?.cancel();
               _cameraService.stopLiveAnalysis();
@@ -239,44 +239,45 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
 
     // ── Flat-key save (legacy) ──
     await StorageService.saveDetectionResult(
-      coughCount:     _audioResult.coughCount,
-      sneezeCount:    _audioResult.sneezeCount,
-      snoreCount:     _audioResult.snoreCount,
-      eyeColor:       _cameraResult?.eyeColor ?? 'unknown',
+      coughCount: _audioResult.coughCount,
+      sneezeCount: _audioResult.sneezeCount,
+      snoreCount: _audioResult.snoreCount,
+      eyeColor: _cameraResult?.eyeColor ?? 'unknown',
       brightnessLevel: _cameraResult?.brightness ?? 0.0,
-      faceDetected:   _cameraResult?.faceDetected ?? false,
-      faceEmbedding:  _cameraResult?.userFaceEmbedding.join(',') ?? '',
+      faceDetected: _cameraResult?.faceDetected ?? false,
+      faceEmbedding: _cameraResult?.userFaceEmbedding.join(',') ?? '',
     );
 
     // ── Session JSON save (Day 5) ──
     final session = SessionResult(
-      sessionStart:    _sessionStart?.toIso8601String() ?? sessionEnd.toIso8601String(),
-      sessionEnd:      sessionEnd.toIso8601String(),
-      coughCount:      _audioResult.coughCount,
-      sneezeCount:     _audioResult.sneezeCount,
-      snoreCount:      _audioResult.snoreCount,
-      faceDetected:    _cameraResult?.faceDetected ?? false,
-      brightnessValue: _cameraResult?.brightness   ?? 0.0,
-      lowLight:        (_cameraResult?.brightness  ?? 100.0) < 50.0,
-      windows:         _audioResult.windowLogs,
+      sessionStart:
+          _sessionStart?.toIso8601String() ?? sessionEnd.toIso8601String(),
+      sessionEnd: sessionEnd.toIso8601String(),
+      coughCount: _audioResult.coughCount,
+      sneezeCount: _audioResult.sneezeCount,
+      snoreCount: _audioResult.snoreCount,
+      faceDetected: _cameraResult?.faceDetected ?? false,
+      brightnessValue: _cameraResult?.brightness ?? 0.0,
+      lowLight: (_cameraResult?.brightness ?? 100.0) < 50.0,
+      windows: _audioResult.windowLogs,
     );
     await StorageService.saveSession(session);
 
     // ── Compute offline health score ──
     final insight = _insightService.compute(
-      coughCount:   _audioResult.coughCount,
-      sneezeCount:  _audioResult.sneezeCount,
-      snoreCount:   _audioResult.snoreCount,
+      coughCount: _audioResult.coughCount,
+      sneezeCount: _audioResult.sneezeCount,
+      snoreCount: _audioResult.snoreCount,
       faceDetected: _cameraResult?.faceDetected ?? false,
-      brightness:   _cameraResult?.brightness   ?? 100.0,
+      brightness: _cameraResult?.brightness ?? 100.0,
     );
 
     // Animate progress to 100%
     setState(() {
       _insightResult = insight;
-      _progressAnim  = Tween<double>(
+      _progressAnim = Tween<double>(
         begin: _progressController.value == 0 ? 0.5 : _progressAnim.value,
-        end:   1.0,
+        end: 1.0,
       ).animate(
         CurvedAnimation(parent: _progressController, curve: Curves.easeInOut),
       );
@@ -297,13 +298,13 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
 
   Future<void> _skipAll() async {
     await StorageService.saveDetectionResult(
-      coughCount:     0,
-      sneezeCount:    0,
-      snoreCount:     0,
-      eyeColor:       'unknown',
+      coughCount: 0,
+      sneezeCount: 0,
+      snoreCount: 0,
+      eyeColor: 'unknown',
       brightnessLevel: 0.0,
-      faceDetected:   false,
-      faceEmbedding:  '',
+      faceDetected: false,
+      faceEmbedding: '',
     );
 
     setState(() {
@@ -412,7 +413,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
               borderRadius: BorderRadius.circular(50),
             ),
             child: const Text(
-              'STEP 2 OF 4',
+              'STEP 3 OF 3',
               style: TextStyle(
                 fontFamily: 'Nunito',
                 fontSize: 11,
@@ -563,13 +564,22 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
       ),
       child: Column(
         children: [
-          _ProbBar(label: 'Cough',  prob: _liveCough,  threshold: 0.30 + StorageService.coughOffset,
+          _ProbBar(
+              label: 'Cough',
+              prob: _liveCough,
+              threshold: 0.30 + StorageService.coughOffset,
               color: const Color(0xFFEF4444)),
           const SizedBox(height: 6),
-          _ProbBar(label: 'Sneeze', prob: _liveSneeze, threshold: 0.35 + StorageService.sneezeOffset,
+          _ProbBar(
+              label: 'Sneeze',
+              prob: _liveSneeze,
+              threshold: 0.35 + StorageService.sneezeOffset,
               color: const Color(0xFFF59E0B)),
           const SizedBox(height: 6),
-          _ProbBar(label: 'Snore',  prob: _liveSnore,  threshold: 0.40 + StorageService.snoreOffset,
+          _ProbBar(
+              label: 'Snore',
+              prob: _liveSnore,
+              threshold: 0.40 + StorageService.snoreOffset,
               color: const Color(0xFF8B5CF6)),
         ],
       ),
@@ -622,11 +632,14 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
         // Count chips
         Row(
           children: [
-            _CountChip(icon: '🤧', label: 'Cough',  count: _audioResult.coughCount),
+            _CountChip(
+                icon: '🤧', label: 'Cough', count: _audioResult.coughCount),
             const SizedBox(width: 8),
-            _CountChip(icon: '🤧', label: 'Sneeze', count: _audioResult.sneezeCount),
+            _CountChip(
+                icon: '🤧', label: 'Sneeze', count: _audioResult.sneezeCount),
             const SizedBox(width: 8),
-            _CountChip(icon: '😴', label: 'Snore',  count: _audioResult.snoreCount),
+            _CountChip(
+                icon: '😴', label: 'Snore', count: _audioResult.snoreCount),
           ],
         ),
         const SizedBox(height: 10),
@@ -651,14 +664,23 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
                 ),
               ),
               const SizedBox(height: 6),
-              _ProbBar(label: 'Cough',  prob: _audioResult.lastCoughProb,
-                  threshold: 0.30 + StorageService.coughOffset, color: const Color(0xFFEF4444)),
+              _ProbBar(
+                  label: 'Cough',
+                  prob: _audioResult.lastCoughProb,
+                  threshold: 0.30 + StorageService.coughOffset,
+                  color: const Color(0xFFEF4444)),
               const SizedBox(height: 4),
-              _ProbBar(label: 'Sneeze', prob: _audioResult.lastSneezeProb,
-                  threshold: 0.35 + StorageService.sneezeOffset, color: const Color(0xFFF59E0B)),
+              _ProbBar(
+                  label: 'Sneeze',
+                  prob: _audioResult.lastSneezeProb,
+                  threshold: 0.35 + StorageService.sneezeOffset,
+                  color: const Color(0xFFF59E0B)),
               const SizedBox(height: 4),
-              _ProbBar(label: 'Snore',  prob: _audioResult.lastSnoreProb,
-                  threshold: 0.40 + StorageService.snoreOffset, color: const Color(0xFF8B5CF6)),
+              _ProbBar(
+                  label: 'Snore',
+                  prob: _audioResult.lastSnoreProb,
+                  threshold: 0.40 + StorageService.snoreOffset,
+                  color: const Color(0xFF8B5CF6)),
             ],
           ),
         ),
@@ -680,7 +702,8 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
   // CAMERA TEST CARD
   // ─────────────────────────────────────────────
   Widget _buildCameraSection() {
-    final cameraDone   = _phase == _TestPhase.cameraDone || _phase == _TestPhase.allDone;
+    final cameraDone =
+        _phase == _TestPhase.cameraDone || _phase == _TestPhase.allDone;
     final cameraActive = _phase == _TestPhase.cameraTest;
     final cameraEnabled = _phase == _TestPhase.micDone;
 
@@ -703,7 +726,6 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
             cameraDone ? AppColors.accentGreen : AppColors.textMuted,
           ),
           const SizedBox(height: 16),
-
           if (cameraActive) ...[
             _buildCameraPreview(),
           ] else if (cameraDone && _cameraResult != null) ...[
@@ -723,34 +745,41 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     final ctrl = _cameraService.cameraController;
 
     if (ctrl == null || !ctrl.value.isInitialized) {
-      return Container(
-        height: 180,
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1A2E),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 12),
-              Text('Starting camera…',
-                  style: TextStyle(
-                      fontFamily: 'Nunito', color: Colors.white70, fontSize: 13)),
-            ],
+      return Center(
+        child: Container(
+          width: 260,
+          height: 260,
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A1A2E),
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Colors.white),
+                SizedBox(height: 12),
+                Text('Starting camera…',
+                    style: TextStyle(
+                        fontFamily: 'Nunito',
+                        color: Colors.white70,
+                        fontSize: 13)),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return Center(
+      child: Container(
+        width: 260,
+        height: 260,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1A2E),
+          shape: BoxShape.circle,
+        ),
+        clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
           Positioned.fill(child: CameraPreview(ctrl)),
@@ -794,6 +823,7 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -806,15 +836,15 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     switch (r.lightStatus) {
       case 'LOW':
         lightColor = AppColors.accentRed;
-        lightIcon  = Icons.brightness_3_rounded;
+        lightIcon = Icons.brightness_3_rounded;
         break;
       case 'BRIGHT':
         lightColor = const Color(0xFFF59E0B);
-        lightIcon  = Icons.wb_sunny_rounded;
+        lightIcon = Icons.wb_sunny_rounded;
         break;
       default: // 'OK'
         lightColor = AppColors.accentGreen;
-        lightIcon  = Icons.light_mode_rounded;
+        lightIcon = Icons.light_mode_rounded;
     }
 
     final qualityPct = (r.qualityScore * 100).toStringAsFixed(0);
@@ -829,18 +859,18 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
               : Icons.face_retouching_off_rounded,
           iconColor:
               r.faceDetected ? AppColors.accentGreen : AppColors.accentRed,
-          label:
-              'Face: ${r.faceDetected ? '✅ Detected' : '❌ Not found'}',
-          color:
-              r.faceDetected ? AppColors.accentGreen : AppColors.accentRed,
-          sublabel: r.faceDetected ? 'Camera quality confirmed' : 'Centre your face',
+          label: 'Face: ${r.faceDetected ? '✅ Detected' : '❌ Not found'}',
+          color: r.faceDetected ? AppColors.accentGreen : AppColors.accentRed,
+          sublabel:
+              r.faceDetected ? 'Camera quality confirmed' : 'Centre your face',
         ),
         const SizedBox(height: 8),
         // ── Light Status ──
         _ResultRow(
           icon: lightIcon,
           iconColor: lightColor,
-          label: 'Light: ${r.lightStatus}  (${r.brightness.toStringAsFixed(0)})',
+          label:
+              'Light: ${r.lightStatus}  (${r.brightness.toStringAsFixed(0)})',
           color: lightColor,
           sublabel: r.lightStatus == 'LOW'
               ? 'Too dark — move to better lighting'
@@ -854,13 +884,11 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
           icon: r.stable
               ? Icons.center_focus_strong_rounded
               : Icons.motion_photos_on_rounded,
-          iconColor:
-              r.stable ? AppColors.accentGreen : const Color(0xFFF59E0B),
+          iconColor: r.stable ? AppColors.accentGreen : const Color(0xFFF59E0B),
           label: r.stable ? 'Stability: Stable ✓' : 'Stability: Move less',
           color: r.stable ? AppColors.accentGreen : const Color(0xFFF59E0B),
-          sublabel: r.stable
-              ? 'Face position consistent'
-              : 'Hold your head still',
+          sublabel:
+              r.stable ? 'Face position consistent' : 'Hold your head still',
         ),
         const SizedBox(height: 10),
         // ── Quality Score ──
@@ -1096,15 +1124,15 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
     switch (insight.color) {
       case HealthColor.green:
         scoreColor = const Color(0xFF16A34A);
-        scoreBg    = const Color(0xFFDCFCE7);
+        scoreBg = const Color(0xFFDCFCE7);
         break;
       case HealthColor.yellow:
         scoreColor = const Color(0xFFD97706);
-        scoreBg    = const Color(0xFFFEF3C7);
+        scoreBg = const Color(0xFFFEF3C7);
         break;
       case HealthColor.red:
         scoreColor = const Color(0xFFDC2626);
-        scoreBg    = const Color(0xFFFEE2E2);
+        scoreBg = const Color(0xFFFEE2E2);
         break;
     }
 
@@ -1114,7 +1142,8 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
-          BoxShadow(color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
+          BoxShadow(
+              color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -1130,7 +1159,8 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
                   color: scoreBg,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(Icons.favorite_rounded, color: scoreColor, size: 24),
+                child:
+                    Icon(Icons.favorite_rounded, color: scoreColor, size: 24),
               ),
               const SizedBox(width: 14),
               const Expanded(
@@ -1201,11 +1231,20 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
           ),
           const SizedBox(height: 16),
           // Load breakdown
-          _LoadBar(label: 'Cough',  value: insight.coughLoad,  color: const Color(0xFFEF4444)),
+          _LoadBar(
+              label: 'Cough',
+              value: insight.coughLoad,
+              color: const Color(0xFFEF4444)),
           const SizedBox(height: 6),
-          _LoadBar(label: 'Sneeze', value: insight.sneezeLoad, color: const Color(0xFFF59E0B)),
+          _LoadBar(
+              label: 'Sneeze',
+              value: insight.sneezeLoad,
+              color: const Color(0xFFF59E0B)),
           const SizedBox(height: 6),
-          _LoadBar(label: 'Snore',  value: insight.snoreLoad,  color: const Color(0xFF8B5CF6)),
+          _LoadBar(
+              label: 'Snore',
+              value: insight.snoreLoad,
+              color: const Color(0xFF8B5CF6)),
           const SizedBox(height: 14),
           const Divider(color: AppColors.divider),
           const SizedBox(height: 10),
@@ -1226,7 +1265,8 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
-          BoxShadow(color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
+          BoxShadow(
+              color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -1396,14 +1436,12 @@ class _DeviceTestScreenState extends State<DeviceTestScreen>
           const Divider(height: 1, color: AppColors.divider),
           ...recent.map(
             (log) => Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               child: Row(
                 children: [
                   Expanded(
                       flex: 1,
-                      child: Text('${log.windowIndex}',
-                          style: _tableStyle())),
+                      child: Text('${log.windowIndex}', style: _tableStyle())),
                   Expanded(
                       flex: 2,
                       child: Text(log.coughProb.toStringAsFixed(3),
@@ -1671,7 +1709,8 @@ class _LoadBar extends StatelessWidget {
   final double value; // 0.0–1.0
   final Color color;
 
-  const _LoadBar({required this.label, required this.value, required this.color});
+  const _LoadBar(
+      {required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -1919,7 +1958,8 @@ class _SectionCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
-          BoxShadow(color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
+          BoxShadow(
+              color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -2021,7 +2061,8 @@ class _MicButton extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(Icons.mic_rounded, color: Colors.white, size: 36),
+              child:
+                  const Icon(Icons.mic_rounded, color: Colors.white, size: 36),
             ),
           ],
         ),
@@ -2067,7 +2108,9 @@ class _CameraPlaceholder extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                enabled ? 'Tap to start camera test' : 'Complete mic test first',
+                enabled
+                    ? 'Tap to start camera test'
+                    : 'Complete mic test first',
                 style: TextStyle(
                   fontFamily: 'Nunito',
                   fontSize: 14,
@@ -2155,7 +2198,8 @@ class _CountChip extends StatelessWidget {
   final String label;
   final int count;
 
-  const _CountChip({required this.icon, required this.label, required this.count});
+  const _CountChip(
+      {required this.icon, required this.label, required this.count});
 
   @override
   Widget build(BuildContext context) {

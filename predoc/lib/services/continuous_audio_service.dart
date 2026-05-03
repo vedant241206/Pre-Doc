@@ -63,9 +63,9 @@ class ContinuousAudioService {
   double _snoreThreshold  = 0.40;
 
   // ── Confirmation window counts ───────────────────────────────
-  static const int _coughMinWindows  = 3;
-  static const int _sneezeMinWindows = 3;
-  static const int _snoreMinWindows  = 4;
+  static const int _coughMinWindows  = 2;
+  static const int _sneezeMinWindows = 2;
+  static const int _snoreMinWindows  = 3;
 
   // ── Cooldown between confirmed events (Part 6) ───────────────
   static const Duration _cooldown = Duration(seconds: 3);
@@ -230,12 +230,7 @@ class ContinuousAudioService {
 
       final chunk = _rawBuffer.sublist(0, _windowBytes);
 
-      // ── PERFORMANCE: skip every odd window ───────────────
       _windowIndex++;
-      if (_windowIndex % 2 != 0) {
-        _rawBuffer.removeRange(0, _hopBytes);
-        continue;
-      }
 
       debugPrint('[AUDIO] Window #$_windowIndex processed (${chunk.length} bytes)');
 
@@ -290,9 +285,23 @@ class ContinuousAudioService {
       final sneezeCross = smoothSneeze >= _sneezeThreshold;
       final snoreCross  = smoothSnore  >= _snoreThreshold;
 
-      if (coughCross)  _coughWindowCount++;
-      if (sneezeCross) _sneezeWindowCount++;
-      if (snoreCross)  _snoreWindowCount++;
+      if (coughCross) {
+        _coughWindowCount++;
+      } else {
+        _coughWindowCount = 0;
+      }
+      
+      if (sneezeCross) {
+        _sneezeWindowCount++;
+      } else {
+        _sneezeWindowCount = 0;
+      }
+      
+      if (snoreCross) {
+        _snoreWindowCount++;
+      } else {
+        _snoreWindowCount = 0;
+      }
 
       // ── Confirmation + cooldown ──────────────────────────
       final now = DateTime.now();

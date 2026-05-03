@@ -1201,41 +1201,49 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(_navItems.length, (i) {
           final item = _navItems[i];
           final isActive = _selectedTab == i;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedTab = i),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isActive ? AppColors.primary : Colors.transparent,
-                borderRadius: BorderRadius.circular(50),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    item.icon,
-                    size: 22,
-                    color: isActive ? Colors.white : AppColors.textMuted,
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _selectedTab = i),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isActive ? AppColors.primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(50),
                   ),
-                  if (isActive) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      item.label,
-                      style: const TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 0.5,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        item.icon,
+                        size: 22,
+                        color: isActive ? Colors.white : AppColors.textMuted,
                       ),
-                    ),
-                  ],
-                ],
+                      if (isActive) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.visible,
+                          style: const TextStyle(
+                            fontFamily: 'Nunito',
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           );

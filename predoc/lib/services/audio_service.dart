@@ -82,16 +82,6 @@ class AudioService {
   static const double _sneezeThreshold = 0.35;
   static const double _snoreThreshold  = 0.40;
 
-  // ── Session confirmation rules (Day 5 spec) ──
-  // cough / sneeze need ≥ 3 windows crossing threshold per session
-  // snore needs ≥ 4 windows
-  static const int _coughMinWindows  = 3;
-  static const int _sneezeMinWindows = 3;
-  static const int _snoreMinWindows  = 4;
-
-  // ── Intra-session cooldown  ──
-  static const Duration _cooldown = Duration(seconds: 3);
-
   // ── PCM constants ──
   // YAMNet window = 15600 float32 samples = 31200 raw bytes  (~0.975 s @ 16 kHz)
   // 50% overlap  → advance by 7800 samples = 15600 raw bytes each step
@@ -303,10 +293,46 @@ class AudioService {
                 passedThreshold: anyPass,
               ));
 
-              // ── Count crossings per session ──
-              if (coughCross)  sessionCoughWindows++;
-              if (sneezeCross) sessionSneezeWindows++;
-              if (snoreCross)  sessionSnoreWindows++;
+              // ── Count crossings per session (Dynamic Live Counting) ──
+              final now = DateTime.now();
+              if (coughCross) {
+                sessionCoughWindows++;
+                if (sessionCoughWindows >= 2) {
+                  if (_lastCoughTime == null || now.difference(_lastCoughTime!) > const Duration(seconds: 2)) {
+                    coughCount++;
+                    _lastCoughTime = now;
+                    sessionCoughWindows = 0; // reset to require a break
+                  }
+                }
+              } else {
+                sessionCoughWindows = 0;
+              }
+
+              if (sneezeCross) {
+                sessionSneezeWindows++;
+                if (sessionSneezeWindows >= 2) {
+                  if (_lastSneezeTime == null || now.difference(_lastSneezeTime!) > const Duration(seconds: 2)) {
+                    sneezeCount++;
+                    _lastSneezeTime = now;
+                    sessionSneezeWindows = 0;
+                  }
+                }
+              } else {
+                sessionSneezeWindows = 0;
+              }
+
+              if (snoreCross) {
+                sessionSnoreWindows++;
+                if (sessionSnoreWindows >= 3) {
+                  if (_lastSnoreTime == null || now.difference(_lastSnoreTime!) > const Duration(seconds: 2)) {
+                    snoreCount++;
+                    _lastSnoreTime = now;
+                    sessionSnoreWindows = 0;
+                  }
+                }
+              } else {
+                sessionSnoreWindows = 0;
+              }
 
               windowIndex++;
 
@@ -336,62 +362,23 @@ class AudioService {
     await stop();
 
     // ─────────────────────────────────────────────
-    // EVENT CONFIRMATION  (session-level rules)
+    // EVENT CONFIRMATION  (Handled Dynamically Above)
     // ─────────────────────────────────────────────
-    final now = DateTime.now();
-
     debugPrint('[AudioService] Session summary — '
-        'coughWindows=$sessionCoughWindows '
-        'sneezeWindows=$sessionSneezeWindows '
-        'snoreWindows=$sessionSnoreWindows');
-
-    // Cough: ≥ 3 windows AND cooldown expired
-    if (sessionCoughWindows >= _coughMinWindows) {
-      if (_lastCoughTime == null || now.difference(_lastCoughTime!) > _cooldown) {
-        coughCount++;
-        _lastCoughTime = now;
-        debugPrint('[AudioService] ✓ Cough event confirmed (total: $coughCount)');
-      } else {
-        debugPrint('[AudioService] Cough in cooldown — not counted');
-      }
-    }
-
-    // Sneeze: ≥ 3 windows AND cooldown expired
-    if (sessionSneezeWindows >= _sneezeMinWindows) {
-      if (_lastSneezeTime == null || now.difference(_lastSneezeTime!) > _cooldown) {
-        sneezeCount++;
-        _lastSneezeTime = now;
-        debugPrint('[AudioService] ✓ Sneeze event confirmed (total: $sneezeCount)');
-      } else {
-        debugPrint('[AudioService] Sneeze in cooldown — not counted');
-      }
-    }
-
-    // Snore: ≥ 4 windows AND cooldown expired
-    if (sessionSnoreWindows >= _snoreMinWindows) {
-      if (_lastSnoreTime == null || now.difference(_lastSnoreTime!) > _cooldown) {
-        snoreCount++;
-        _lastSnoreTime = now;
-        debugPrint('[AudioService] ✓ Snore event confirmed (total: $snoreCount)');
-      } else {
-        debugPrint('[AudioService] Snore in cooldown — not counted');
-      }
-    }
+        'coughs=$coughCount '
+        'sneezes=$sneezeCount '
+        'snores=$snoreCount');
 
     // ── Build dominant label ──
     String dominantLabel = 'No strong signal';
-    final maxWindows = [
-      sessionCoughWindows,
-      sessionSneezeWindows,
-      sessionSnoreWindows,
-    ].reduce(max);
 
-    if (maxWindows >= _coughMinWindows) {
-      if (sessionCoughWindows == maxWindows) {
+    if (coughCount > 0 || sneezeCount > 0 || snoreCount > 0) {
+      final maxCount = [coughCount, sneezeCount, snoreCount].reduce(max);
+      if (maxCount == coughCount) {
         dominantLabel = 'Cough detected 🤧';
-      } else if (sessionSneezeWindows == maxWindows) {
+      } else if (maxCount == sneezeCount) {
         dominantLabel = 'Sneeze detected 🤧';
-      } else if (sessionSnoreWindows >= _snoreMinWindows) {
+      } else {
         dominantLabel = 'Snore pattern detected 😴';
       }
     }

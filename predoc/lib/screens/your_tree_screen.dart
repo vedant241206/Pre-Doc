@@ -15,10 +15,10 @@ class YourTreeScreen extends StatefulWidget {
 
 class _YourTreeScreenState extends State<YourTreeScreen>
     with TickerProviderStateMixin {
-  int  _streak     = 0;
-  int  _todayScore = 0;
-  int  _totalScore = 0;
-  bool _hasToday   = false;
+  int _streak = 0;
+  int _todayScore = 0;
+  int _totalScore = 0;
+  bool _hasToday = false;
 
   // Growth controllers
   late AnimationController _stemCtrl;
@@ -36,12 +36,26 @@ class _YourTreeScreenState extends State<YourTreeScreen>
   late Animation<double> _leaves2Anim;
   late Animation<double> _leaves3Anim;
   late Animation<double> _crownAnim;
-  late Animation<double> _swayAnim;  // -1 → +1 sway
+  late Animation<double> _swayAnim; // -1 → +1 sway
   late Animation<double> _shineAnim;
 
-  static const _insightSvc = InsightService();
-  static const _dashSvc    = DashboardService();
-  static const int _minScore = 60;
+  static const _dashSvc = DashboardService();
+
+  // ── Score-based growth stage thresholds ─────────────────────
+  // Stage 0: seed   (0 pts)
+  // Stage 1: stem   (1+ pts)
+  // Stage 2: leaves1 (80+ pts)
+  // Stage 3: leaves2 (200+ pts)
+  // Stage 4: leaves3 (400+ pts)
+  // Stage 5: crown  (700+ pts)
+  int get _growthStage {
+    if (_totalScore >= 700) return 5;
+    if (_totalScore >= 400) return 4;
+    if (_totalScore >= 200) return 3;
+    if (_totalScore >= 80) return 2;
+    if (_totalScore >= 1) return 1;
+    return 0;
+  }
 
   @override
   void initState() {
@@ -52,75 +66,95 @@ class _YourTreeScreenState extends State<YourTreeScreen>
   }
 
   void _initControllers() {
-    _stemCtrl    = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-    _stemAnim    = CurvedAnimation(parent: _stemCtrl,    curve: Curves.easeOut);
+    _stemCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900));
+    _stemAnim = CurvedAnimation(parent: _stemCtrl, curve: Curves.easeOut);
 
-    _leaves1Ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
-    _leaves1Anim = CurvedAnimation(parent: _leaves1Ctrl, curve: Curves.elasticOut);
+    _leaves1Ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _leaves1Anim =
+        CurvedAnimation(parent: _leaves1Ctrl, curve: Curves.elasticOut);
 
-    _leaves2Ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
-    _leaves2Anim = CurvedAnimation(parent: _leaves2Ctrl, curve: Curves.elasticOut);
+    _leaves2Ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _leaves2Anim =
+        CurvedAnimation(parent: _leaves2Ctrl, curve: Curves.elasticOut);
 
-    _leaves3Ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
-    _leaves3Anim = CurvedAnimation(parent: _leaves3Ctrl, curve: Curves.elasticOut);
+    _leaves3Ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _leaves3Anim =
+        CurvedAnimation(parent: _leaves3Ctrl, curve: Curves.elasticOut);
 
-    _crownCtrl   = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
-    _crownAnim   = CurvedAnimation(parent: _crownCtrl,   curve: Curves.elasticOut);
+    _crownCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 800));
+    _crownAnim = CurvedAnimation(parent: _crownCtrl, curve: Curves.elasticOut);
 
     // Gentle sway: -1 → +1 (maps to a small rotation)
-    _swayCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2200))
+    _swayCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 2200))
       ..repeat(reverse: true);
     _swayAnim = Tween<double>(begin: -1.0, end: 1.0)
         .animate(CurvedAnimation(parent: _swayCtrl, curve: Curves.easeInOut));
 
     // Shine pulse for streak >= 6
-    _shineCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))
+    _shineCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1600))
       ..repeat(reverse: true);
     _shineAnim = CurvedAnimation(parent: _shineCtrl, curve: Curves.easeInOut);
   }
 
   void _computeData() {
-    final sessions = StorageService.getSessions();
-    final today    = _dashSvc.computeToday(sessions);
-    _hasToday      = today.hasData;
-    _todayScore    = today.score;
+    // 1. Calculate today's score using live counts
+    final liveCounts = StorageService.getDailyLiveCounts();
+    final today = _dashSvc.computeToday(
+      [], // no legacy sessions
+      liveCough: liveCounts['cough'] ?? 0,
+      liveSneeze: liveCounts['sneeze'] ?? 0,
+      liveSnore: liveCounts['snore'] ?? 0,
+    );
 
+    _hasToday = today.hasData;
+    _todayScore = today.score;
+
+    // 2. Calculate total score and streak from DailySnapshots
+    final snapshots = StorageService.getDailySnapshots(days: 365);
     int scoreSum = 0;
-    for (final s in sessions) {
-      final ins = _insightSvc.compute(
-        coughCount:   s.coughCount,
-        sneezeCount:  s.sneezeCount,
-        snoreCount:   s.snoreCount,
-        faceDetected: s.faceDetected,
-        brightness:   s.brightnessValue,
-      );
-      scoreSum += ins.score;
+    for (final s in snapshots) {
+      scoreSum += s.healthScore;
     }
-    _totalScore = scoreSum;
-    _streak     = _computeStreak(sessions);
+    // Also add today's score to total if today isn't saved in snapshots yet
+    // Actually, DashboardService.computeToday saves the snapshot automatically!
+    _totalScore = scoreSum > 0 ? scoreSum : (today.hasData ? today.score : 0);
+    _streak = _computeStreak(snapshots, today.hasData, today.score);
   }
 
-  int _computeStreak(List<SessionResult> sessions) {
-    if (sessions.isEmpty) return 0;
+  int _computeStreak(
+      List<DailySnapshot> snapshots, bool hasToday, int todayScore) {
+    if (snapshots.isEmpty && !hasToday) return 0;
+
     final Map<String, int> bestDay = {};
-    for (final s in sessions) {
-      DateTime dt;
-      try { dt = DateTime.parse(s.sessionStart); } catch (_) { continue; }
-      final key = '${dt.year}-${dt.month}-${dt.day}';
-      final ins = _insightSvc.compute(
-        coughCount: s.coughCount, sneezeCount: s.sneezeCount,
-        snoreCount: s.snoreCount, faceDetected: s.faceDetected,
-        brightness: s.brightnessValue,
-      );
-      final prev = bestDay[key] ?? 0;
-      if (ins.score > prev) bestDay[key] = ins.score;
+    for (final s in snapshots) {
+      bestDay[s.dateKey] = s.healthScore;
     }
+
+    if (hasToday) {
+      final now = DateTime.now();
+      final todayKey = '${now.year}-${now.month}-${now.day}';
+      bestDay[todayKey] = todayScore;
+    }
+
     final now = DateTime.now();
     int streak = 0;
     for (int i = 0; i < 365; i++) {
-      final d   = now.subtract(Duration(days: i));
+      final d = now.subtract(Duration(days: i));
       final key = '${d.year}-${d.month}-${d.day}';
-      if ((bestDay[key] ?? 0) >= _minScore) { streak++; } else { break; }
+      if ((bestDay[key] ?? 0) >= 60) {
+        streak++;
+      } else {
+        // Allow breaking on today if they haven't completed a session yet today, but check yesterday
+        if (i == 0) continue;
+        break;
+      }
     }
     return streak;
   }
@@ -128,11 +162,25 @@ class _YourTreeScreenState extends State<YourTreeScreen>
   Future<void> _startAnimations() async {
     await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
-    if (_streak >= 1) { await _stemCtrl.forward();    await Future.delayed(const Duration(milliseconds: 100)); }
-    if (_streak >= 3) { await _leaves1Ctrl.forward(); await Future.delayed(const Duration(milliseconds: 80)); }
-    if (_streak >= 4) { await _leaves2Ctrl.forward(); await Future.delayed(const Duration(milliseconds: 80)); }
-    if (_streak >= 5) { await _leaves3Ctrl.forward(); await Future.delayed(const Duration(milliseconds: 80)); }
-    if (_streak >= 5) { await _crownCtrl.forward(); }
+    if (_growthStage >= 1) {
+      await _stemCtrl.forward();
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    if (_growthStage >= 2) {
+      await _leaves1Ctrl.forward();
+      await Future.delayed(const Duration(milliseconds: 80));
+    }
+    if (_growthStage >= 3) {
+      await _leaves2Ctrl.forward();
+      await Future.delayed(const Duration(milliseconds: 80));
+    }
+    if (_growthStage >= 4) {
+      await _leaves3Ctrl.forward();
+      await Future.delayed(const Duration(milliseconds: 80));
+    }
+    if (_growthStage >= 5) {
+      await _crownCtrl.forward();
+    }
   }
 
   @override
@@ -171,34 +219,46 @@ class _YourTreeScreenState extends State<YourTreeScreen>
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Your Tree', style: TextStyle(
-            fontFamily: 'Nunito', fontSize: 22, fontWeight: FontWeight.w900,
-            color: AppColors.textDark)),
+          const Text('Your Tree',
+              style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textDark)),
           const SizedBox(height: 4),
           Row(children: [
             _ScorePill(
               label: 'Today',
               value: _hasToday ? '$_todayScore' : '--',
               color: _hasToday
-                  ? (_todayScore >= 80 ? AppColors.good
-                      : _todayScore >= 50 ? AppColors.moderate : AppColors.risk)
+                  ? (_todayScore >= 80
+                      ? AppColors.good
+                      : _todayScore >= 50
+                          ? AppColors.moderate
+                          : AppColors.risk)
                   : AppColors.textMuted,
             ),
             const SizedBox(width: 8),
-            _ScorePill(label: 'Total XP', value: '$_totalScore',
+            _ScorePill(
+                label: 'Total XP',
+                value: '$_totalScore',
                 color: AppColors.primary),
           ]),
         ]),
         GestureDetector(
           onTap: () => context.push('/leaderboard'),
           child: Container(
-            width: 48, height: 48,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: const Color(0xFFFEF3C7),
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(
-                color: const Color(0xFFFBBF24).withValues(alpha: 0.25),
-                blurRadius: 8, offset: const Offset(0, 3))],
+              boxShadow: [
+                BoxShadow(
+                    color: const Color(0xFFFBBF24).withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3))
+              ],
             ),
             child: const Icon(Icons.emoji_events_rounded,
                 color: Color(0xFFB45309), size: 26),
@@ -209,7 +269,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
   }
 
   Widget _buildTreeStage() {
-    final stemMaxH = math.min(60.0 + _streak * 14.0, 140.0);
+    final stemMaxH = math.min(60.0 + _growthStage * 16.0, 140.0);
 
     return Container(
       width: double.infinity,
@@ -218,8 +278,10 @@ class _YourTreeScreenState extends State<YourTreeScreen>
         color: const Color(0xFFF0FDF4),
         borderRadius: BorderRadius.circular(AppColors.radiusCard + 4),
         border: Border.all(color: const Color(0xFFBBF7D0), width: 1.5),
-        boxShadow: const [BoxShadow(
-            color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3))],
+        boxShadow: const [
+          BoxShadow(
+              color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3))
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppColors.radiusCard + 4),
@@ -228,7 +290,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
           builder: (_, child) {
             // Sway only if there's a stem
             final swayRad = _streak >= 1
-                ? _swayAnim.value * 0.03  // ±1.7 degrees
+                ? _swayAnim.value * 0.03 // ±1.7 degrees
                 : 0.0;
             return Stack(
               alignment: Alignment.bottomCenter,
@@ -246,7 +308,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                         alignment: Alignment.bottomCenter,
                         children: [
                           // STEM
-                          if (_streak >= 1)
+                          if (_growthStage >= 1)
                             AnimatedBuilder(
                               animation: _stemAnim,
                               builder: (_, __) {
@@ -259,17 +321,20 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                     decoration: BoxDecoration(
                                       color: const Color(0xFF4D7C0F),
                                       borderRadius: BorderRadius.circular(6),
-                                      boxShadow: [BoxShadow(
-                                        color: const Color(0xFF84CC16).withValues(alpha: 0.3),
-                                        blurRadius: 6)],
+                                      boxShadow: [
+                                        BoxShadow(
+                                            color: const Color(0xFF84CC16)
+                                                .withValues(alpha: 0.3),
+                                            blurRadius: 6)
+                                      ],
                                     ),
                                   ),
                                 );
                               },
                             ),
 
-                          // DEPTH LAYER: back leaves (streak>=3, slightly smaller/darker)
-                          if (_streak >= 3)
+                          // DEPTH LAYER: back leaves (growthStage>=2, slightly smaller/darker)
+                          if (_growthStage >= 2)
                             AnimatedBuilder(
                               animation: _leaves1Anim,
                               builder: (_, child) => Positioned(
@@ -277,17 +342,20 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                 child: Opacity(
                                   opacity: (_leaves1Anim.value).clamp(0.0, 1.0),
                                   child: Transform.scale(
-                                    scale: (_leaves1Anim.value * 0.75).clamp(0, 1.5),
+                                    scale: (_leaves1Anim.value * 0.75)
+                                        .clamp(0, 1.5),
                                     child: child,
                                   ),
                                 ),
                               ),
-                              child: _LeafPair(size: 38,
-                                  color: const Color(0xFF166534), angle: 0.6),
+                              child: _LeafPair(
+                                  size: 38,
+                                  color: const Color(0xFF166534),
+                                  angle: 0.6),
                             ),
 
                           // LEAVES LEVEL 1 — front
-                          if (_streak >= 3)
+                          if (_growthStage >= 2)
                             AnimatedBuilder(
                               animation: _leaves1Anim,
                               builder: (_, child) => Positioned(
@@ -300,12 +368,14 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                   ),
                                 ),
                               ),
-                              child: _LeafPair(size: 50,
-                                  color: const Color(0xFF16A34A), angle: 0.5),
+                              child: _LeafPair(
+                                  size: 50,
+                                  color: const Color(0xFF16A34A),
+                                  angle: 0.5),
                             ),
 
                           // DEPTH LAYER: back leaves 2
-                          if (_streak >= 4)
+                          if (_growthStage >= 3)
                             AnimatedBuilder(
                               animation: _leaves2Anim,
                               builder: (_, child) => Positioned(
@@ -313,17 +383,20 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                 child: Opacity(
                                   opacity: (_leaves2Anim.value).clamp(0.0, 1.0),
                                   child: Transform.scale(
-                                    scale: (_leaves2Anim.value * 0.75).clamp(0, 1.5),
+                                    scale: (_leaves2Anim.value * 0.75)
+                                        .clamp(0, 1.5),
                                     child: child,
                                   ),
                                 ),
                               ),
-                              child: _LeafPair(size: 44,
-                                  color: const Color(0xFF15803D), angle: -0.5),
+                              child: _LeafPair(
+                                  size: 44,
+                                  color: const Color(0xFF15803D),
+                                  angle: -0.5),
                             ),
 
                           // LEAVES LEVEL 2 — front
-                          if (_streak >= 4)
+                          if (_growthStage >= 3)
                             AnimatedBuilder(
                               animation: _leaves2Anim,
                               builder: (_, child) => Positioned(
@@ -336,12 +409,14 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                   ),
                                 ),
                               ),
-                              child: _LeafPair(size: 58,
-                                  color: const Color(0xFF22C55E), angle: -0.4),
+                              child: _LeafPair(
+                                  size: 58,
+                                  color: const Color(0xFF22C55E),
+                                  angle: -0.4),
                             ),
 
                           // LEAVES LEVEL 3
-                          if (_streak >= 5)
+                          if (_growthStage >= 4)
                             AnimatedBuilder(
                               animation: _leaves3Anim,
                               builder: (_, child) => Positioned(
@@ -354,12 +429,14 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                   ),
                                 ),
                               ),
-                              child: _LeafPair(size: 44,
-                                  color: const Color(0xFF4ADE80), angle: 0.3),
+                              child: _LeafPair(
+                                  size: 44,
+                                  color: const Color(0xFF4ADE80),
+                                  angle: 0.3),
                             ),
 
                           // CROWN
-                          if (_streak >= 5)
+                          if (_growthStage >= 5)
                             AnimatedBuilder(
                               animation: _crownAnim,
                               builder: (_, child) => Positioned(
@@ -373,7 +450,7 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                                 ),
                               ),
                               child: _Crown(
-                                  hasShine: _streak >= 6,
+                                  hasShine: _growthStage >= 5,
                                   shineAnim: _shineAnim),
                             ),
                         ],
@@ -393,7 +470,8 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                         width: 72,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF000000).withValues(alpha: 0.08),
+                          color:
+                              const Color(0xFF000000).withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(50),
                         ),
                       ),
@@ -403,8 +481,8 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                   ),
                 ),
 
-                // EMPTY SEED STATE
-                if (_streak == 0)
+                // SEED STATE — always shows when no score yet
+                if (_growthStage == 0)
                   Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -412,12 +490,16 @@ class _YourTreeScreenState extends State<YourTreeScreen>
                         Text('🌱', style: TextStyle(fontSize: 52)),
                         SizedBox(height: 10),
                         Text('Your seed is waiting…',
-                            style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
+                            style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 14,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF166534))),
                         SizedBox(height: 4),
-                        Text('Score ≥ 60 today to start growing',
-                            style: TextStyle(fontFamily: 'Nunito', fontSize: 12,
+                        Text('Complete a session to start growing',
+                            style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: Color(0xFF4ADE80))),
                       ],
@@ -432,11 +514,17 @@ class _YourTreeScreenState extends State<YourTreeScreen>
   }
 
   Widget _buildStreakRow() {
-    final stageLabel = _streak == 0 ? 'Plant your seed'
-        : _streak == 1 ? 'Sprouting 🌱'
-        : _streak <= 3 ? 'Growing 🌿'
-        : _streak <= 5 ? 'Blooming 🌳'
-        : 'Thriving 🌟';
+    final stageLabel = _growthStage == 0
+        ? 'Plant your seed'
+        : _growthStage == 1
+            ? 'Sprouting 🌱'
+            : _growthStage == 2
+                ? 'Growing 🌿'
+                : _growthStage == 3
+                    ? 'Blooming 🌳'
+                    : _growthStage == 4
+                        ? 'Flourishing 🌺'
+                        : 'Thriving 🌟';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -444,8 +532,8 @@ class _YourTreeScreenState extends State<YourTreeScreen>
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: _streak > 0
-                ? const Color(0xFFFEF3C7) : AppColors.primaryLight,
+            color:
+                _streak > 0 ? const Color(0xFFFEF3C7) : AppColors.primaryLight,
             borderRadius: BorderRadius.circular(AppColors.radiusCard),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -454,11 +542,18 @@ class _YourTreeScreenState extends State<YourTreeScreen>
             const SizedBox(width: 8),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('$_streak day${_streak == 1 ? '' : 's'}',
-                  style: const TextStyle(fontFamily: 'Nunito', fontSize: 18,
-                      fontWeight: FontWeight.w900, color: AppColors.textDark)),
-              const Text('STREAK', style: TextStyle(fontFamily: 'Nunito',
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                  color: AppColors.textMuted, letterSpacing: 1)),
+                  style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textDark)),
+              const Text('STREAK',
+                  style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textMuted,
+                      letterSpacing: 1)),
             ]),
           ]),
         ),
@@ -467,12 +562,19 @@ class _YourTreeScreenState extends State<YourTreeScreen>
           decoration: BoxDecoration(
             color: AppColors.primary,
             borderRadius: BorderRadius.circular(AppColors.radiusCard),
-            boxShadow: [BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.25),
-              blurRadius: 8, offset: const Offset(0, 3))],
+            boxShadow: [
+              BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3))
+            ],
           ),
-          child: Text(stageLabel, style: const TextStyle(fontFamily: 'Nunito',
-              fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+          child: Text(stageLabel,
+              style: const TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white)),
         ),
       ],
     );
@@ -484,8 +586,9 @@ class _YourTreeScreenState extends State<YourTreeScreen>
 class _ScorePill extends StatelessWidget {
   final String label;
   final String value;
-  final Color  color;
-  const _ScorePill({required this.label, required this.value, required this.color});
+  final Color color;
+  const _ScorePill(
+      {required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -496,11 +599,19 @@ class _ScorePill extends StatelessWidget {
         borderRadius: BorderRadius.circular(50),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(label, style: TextStyle(fontFamily: 'Nunito', fontSize: 11,
-            fontWeight: FontWeight.w700, color: color)),
+        Text(label,
+            style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color)),
         const SizedBox(width: 5),
-        Text(value, style: TextStyle(fontFamily: 'Nunito', fontSize: 14,
-            fontWeight: FontWeight.w900, color: color)),
+        Text(value,
+            style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                color: color)),
       ]),
     );
   }
@@ -535,13 +646,15 @@ class _PotPainter extends CustomPainter {
     canvas.drawPath(body, Paint()..color = const Color(0xFFB45309));
     // Highlight
     canvas.drawLine(
-      Offset(cx - 18, 16), Offset(cx - 12, size.height - 4),
+      Offset(cx - 18, 16),
+      Offset(cx - 12, size.height - 4),
       Paint()
         ..color = Colors.white.withValues(alpha: 0.18)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
   }
+
   @override
   bool shouldRepaint(covariant CustomPainter _) => false;
 }
@@ -550,16 +663,18 @@ class _PotPainter extends CustomPainter {
 
 class _LeafPair extends StatelessWidget {
   final double size;
-  final Color  color;
+  final Color color;
   final double angle;
-  const _LeafPair({required this.size, required this.color, required this.angle});
+  const _LeafPair(
+      {required this.size, required this.color, required this.angle});
 
   @override
   Widget build(BuildContext context) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Transform.rotate(
         angle: -math.pi / 4 - angle,
-        child: CustomPaint(size: Size(size, size),
+        child: CustomPaint(
+            size: Size(size, size),
             painter: _LeafPainter(color: color, veinAlpha: 0.22)),
       ),
       SizedBox(width: size * 0.08),
@@ -567,7 +682,8 @@ class _LeafPair extends StatelessWidget {
         scaleX: -1,
         child: Transform.rotate(
           angle: -math.pi / 4 - angle,
-          child: CustomPaint(size: Size(size, size),
+          child: CustomPaint(
+              size: Size(size, size),
               painter: _LeafPainter(color: color, veinAlpha: 0.22)),
         ),
       ),
@@ -576,7 +692,7 @@ class _LeafPair extends StatelessWidget {
 }
 
 class _LeafPainter extends CustomPainter {
-  final Color  color;
+  final Color color;
   final double veinAlpha;
   const _LeafPainter({required this.color, required this.veinAlpha});
 
@@ -590,7 +706,8 @@ class _LeafPainter extends CustomPainter {
       ..close();
     canvas.drawPath(path, Paint()..color = color);
     canvas.drawLine(
-      Offset(w * 0.5, h * 0.9), Offset(w * 0.5, h * 0.1),
+      Offset(w * 0.5, h * 0.9),
+      Offset(w * 0.5, h * 0.1),
       Paint()
         ..color = Colors.white.withValues(alpha: veinAlpha)
         ..style = PaintingStyle.stroke
@@ -598,6 +715,7 @@ class _LeafPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round,
     );
   }
+
   @override
   bool shouldRepaint(covariant _LeafPainter old) => old.color != color;
 }
@@ -628,8 +746,11 @@ class _CrownPainter extends CustomPainter {
   const _CrownPainter({required this.glowOpacity});
 
   static const _layers = [
-    Color(0xFF14532D), Color(0xFF166534), Color(0xFF15803D),
-    Color(0xFF16A34A), Color(0xFF22C55E),
+    Color(0xFF14532D),
+    Color(0xFF166534),
+    Color(0xFF15803D),
+    Color(0xFF16A34A),
+    Color(0xFF22C55E),
   ];
 
   @override
@@ -640,15 +761,17 @@ class _CrownPainter extends CustomPainter {
           angleOffset: l * 0.18);
     }
     canvas.drawCircle(
-      Offset(cx, cy), 28,
+      Offset(cx, cy),
+      28,
       Paint()
         ..color = const Color(0xFF86EFAC).withValues(alpha: glowOpacity)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
   }
 
-  void _drawRosette(Canvas canvas, double cx, double cy, double scale,
-      Color color, {double angleOffset = 0}) {
+  void _drawRosette(
+      Canvas canvas, double cx, double cy, double scale, Color color,
+      {double angleOffset = 0}) {
     const n = 7;
     for (int i = 0; i < n; i++) {
       final angle = (i * 2 * math.pi / n) + angleOffset;

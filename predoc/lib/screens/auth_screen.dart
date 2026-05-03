@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../widgets/predoc_button.dart';
 import '../utils/local_storage.dart';
+import '../services/firebase_service.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -14,6 +15,7 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen>
     with SingleTickerProviderStateMixin {
   bool _skipChecked = false;
+  bool _isSigningIn = false;
   late AnimationController _entryController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -41,14 +43,34 @@ class _AuthScreenState extends State<AuthScreen>
 
   void _goNext() => context.go('/permissions');
 
-  Future<void> _onCreateAccount() async {
-    await LocalStorage.setLoggedIn();
-    if (mounted) _goNext();
-  }
+  Future<void> _onGoogleSignIn() async {
+    setState(() => _isSigningIn = true);
+    
+    try {
+      final user = await FirebaseService.signInWithGoogle();
+      
+      if (mounted) setState(() => _isSigningIn = false);
 
-  Future<void> _onSignIn() async {
-    await LocalStorage.setLoggedIn();
-    if (mounted) _goNext();
+      if (user != null) {
+        if (mounted) _goNext();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Sign-In failed. Please try again.', style: TextStyle(fontFamily: 'Nunito')),
+            backgroundColor: AppColors.risk,
+          ));
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isSigningIn = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Auth Error: $e', style: const TextStyle(fontFamily: 'Nunito')),
+          backgroundColor: AppColors.risk,
+          duration: const Duration(seconds: 4),
+        ));
+      }
+    }
   }
 
   Future<void> _onSkip() async {
@@ -116,27 +138,60 @@ class _AuthScreenState extends State<AuthScreen>
 
                   const SizedBox(height: 28),
 
-                  // ── Character illustration ──
-                  _CharacterIllustration(),
+                  // ── Clean Theme Icon ──
+                  Container(
+                    width: 160,
+                    height: 160,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 110,
+                        height: 110,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryLight,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.2),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.cloud_sync_rounded,
+                          size: 52,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(height: 36),
 
-                  // ── Create Account ──
-                  PredocButton(
-                    label: 'CREATE ACCOUNT',
-                    onTap: _onCreateAccount,
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // ── Sign In ──
-                  PredocButton(
-                    label: 'I ALREADY HAVE AN ACCOUNT',
-                    onTap: _onSignIn,
-                    isOutlined: true,
-                    backgroundColor: Colors.white,
-                    textColor: AppColors.textDark,
-                  ),
+                  // ── Google Sign In ──
+                  if (_isSigningIn)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(color: AppColors.primary),
+                    )
+                  else
+                    PredocButton(
+                      label: 'CONTINUE WITH GOOGLE',
+                      onTap: _onGoogleSignIn,
+                      backgroundColor: Colors.white,
+                      textColor: AppColors.textDark,
+                      isOutlined: true,
+                      prefixWidget: Image.network(
+                        'https://cdn4.iconfinder.com/data/icons/logos-brands-7/512/google_logo-google_icongoogle-512.png',
+                        width: 22,
+                        height: 22,
+                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.g_mobiledata, size: 28, color: AppColors.primary),
+                      ),
+                    ),
 
                   const SizedBox(height: 28),
 
@@ -311,157 +366,3 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-// ── Cartoon character illustration ──
-class _CharacterIllustration extends StatefulWidget {
-  @override
-  State<_CharacterIllustration> createState() => _CharacterIllustrationState();
-}
-
-class _CharacterIllustrationState extends State<_CharacterIllustration>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _bounce;
-  late Animation<double> _bounceAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _bounce = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
-    _bounceAnim = Tween<double>(begin: 0, end: -8).animate(
-      CurvedAnimation(parent: _bounce, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _bounce.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _bounceAnim,
-      builder: (context, child) => Transform.translate(
-        offset: Offset(0, _bounceAnim.value),
-        child: child,
-      ),
-      child: Container(
-        width: 200,
-        height: 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1B4F72),
-              Color(0xFF2E86AB),
-            ],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.2),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: CustomPaint(painter: _CharacterPainter()),
-      ),
-    );
-  }
-}
-
-class _CharacterPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-
-    // Body/shirt (light blue)
-    final bodyPaint = Paint()..color = const Color(0xFF5DADE2);
-    final bodyPath = Path()
-      ..moveTo(cx - 45, cy + 30)
-      ..quadraticBezierTo(cx - 50, cy + 80, cx - 30, cy + 100)
-      ..lineTo(cx + 30, cy + 100)
-      ..quadraticBezierTo(cx + 50, cy + 80, cx + 45, cy + 30)
-      ..close();
-    canvas.drawPath(bodyPath, bodyPaint);
-
-    // Neck
-    final neckPaint = Paint()..color = const Color(0xFFF5CBA7);
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(cx, cy + 16), width: 28, height: 22),
-      neckPaint,
-    );
-
-    // Head
-    final headPaint = Paint()..color = const Color(0xFFF5CBA7);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx, cy - 22), width: 80, height: 88),
-      headPaint,
-    );
-
-    // Hair (brown)
-    final hairPaint = Paint()..color = const Color(0xFF6E3B1A);
-    final hairPath = Path()
-      ..moveTo(cx - 40, cy - 30)
-      ..quadraticBezierTo(cx - 42, cy - 72, cx, cy - 78)
-      ..quadraticBezierTo(cx + 42, cy - 72, cx + 40, cy - 30)
-      ..quadraticBezierTo(cx + 44, cy - 55, cx + 38, cy - 38)
-      ..quadraticBezierTo(cx, cy - 85, cx - 38, cy - 38)
-      ..quadraticBezierTo(cx - 44, cy - 55, cx - 40, cy - 30)
-      ..close();
-    canvas.drawPath(hairPath, hairPaint);
-
-    // Left eye
-    final eyeWhitePaint = Paint()..color = Colors.white;
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx - 18, cy - 20), width: 22, height: 26),
-      eyeWhitePaint,
-    );
-    // Right eye
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx + 18, cy - 20), width: 22, height: 26),
-      eyeWhitePaint,
-    );
-
-    // Pupils (blue-grey)
-    final pupilPaint = Paint()..color = const Color(0xFF2E86AB);
-    canvas.drawCircle(Offset(cx - 18, cy - 20), 7, pupilPaint);
-    canvas.drawCircle(Offset(cx + 18, cy - 20), 7, pupilPaint);
-
-    // Pupil shine
-    final shinePaint = Paint()..color = Colors.white;
-    canvas.drawCircle(Offset(cx - 15, cy - 23), 2.5, shinePaint);
-    canvas.drawCircle(Offset(cx + 21, cy - 23), 2.5, shinePaint);
-
-    // Smile
-    final smilePaint = Paint()
-      ..color = const Color(0xFFE74C3C)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
-    final smilePath = Path()
-      ..moveTo(cx - 16, cy - 2)
-      ..quadraticBezierTo(cx, cy + 12, cx + 16, cy - 2);
-    canvas.drawPath(smilePath, smilePaint);
-
-    // Cheek blush
-    final blushPaint = Paint()..color = const Color(0xFFFF8C94).withValues(alpha: 0.4);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx - 30, cy - 8), width: 20, height: 10),
-      blushPaint,
-    );
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(cx + 30, cy - 8), width: 20, height: 10),
-      blushPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

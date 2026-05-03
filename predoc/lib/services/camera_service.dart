@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:ui';
+
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'model_service.dart';
 
@@ -174,11 +176,36 @@ class CameraService {
         InputImageFormatValue.fromRawValue(image.format.raw) ??
             InputImageFormat.nv21;
 
+    final camera = cameraController!.description;
+    final sensorOrientation = camera.sensorOrientation;
+    
+    InputImageRotation? rotation;
+    if (Platform.isIOS) {
+      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    } else if (Platform.isAndroid) {
+      final orientations = {
+        DeviceOrientation.portraitUp: 0,
+        DeviceOrientation.landscapeLeft: 90,
+        DeviceOrientation.portraitDown: 180,
+        DeviceOrientation.landscapeRight: 270,
+      };
+      var rotationCompensation = orientations[cameraController!.value.deviceOrientation];
+      if (rotationCompensation != null) {
+        if (camera.lensDirection == CameraLensDirection.front) {
+          rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
+        } else {
+          rotationCompensation = (sensorOrientation - rotationCompensation + 360) % 360;
+        }
+        rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
+      }
+    }
+    rotation ??= InputImageRotation.rotation270deg;
+
     final inputImage = InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(
         size: imageSize,
-        rotation: InputImageRotation.rotation270deg,
+        rotation: rotation,
         format: format,
         bytesPerRow: image.planes[0].bytesPerRow,
       ),

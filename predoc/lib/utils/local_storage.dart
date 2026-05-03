@@ -42,6 +42,8 @@ class LocalStorage {
   static const String _keyHeightFtInch = 'height_ft_inch';
   static const String _keyCountry     = 'user_country';
   static const String _keyCity        = 'user_city';
+  static const String _keyBaseScore   = 'base_score';
+  static const String _keyBaseStreak  = 'base_streak';
 
   // ═══════════════════════════════════════════════════════════════
   // ONBOARDING STATE FLAGS
@@ -187,4 +189,10 @@ class LocalStorage {
 
   static String get city => prefs.getString(_keyCity) ?? '';
   static Future<void> setCity(String val) => prefs.setString(_keyCity, val);
+
+  static int get baseScore => prefs.getInt(_keyBaseScore) ?? 0;
+  static Future<void> setBaseScore(int val) => prefs.setInt(_keyBaseScore, val);
+
+  static int get baseStreak => prefs.getInt(_keyBaseStreak) ?? 0;
+  static Future<void> setBaseStreak(int val) => prefs.setInt(_keyBaseStreak, val);
 }

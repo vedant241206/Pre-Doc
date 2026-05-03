@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "250489968199",
+    "project_id": "predoc-75853",
+    "storage_bucket": "predoc-75853.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:250489968199:android:5eae6e0db73c31470e8362",
+        "android_client_info": {
+          "package_name": "com.predoc.predoc"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "250489968199-1jg4jq7j00e3b0tur4o89r8msqhmjqas.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.predoc.predoc",
+            "certificate_hash": "9a18fabc241d5c37fa5f73eb5c2fe08704d5ee88"
+          }
+        },
+        {
+          "client_id": "250489968199-l32k2rio11bvqpvne5r2c632gdig9i6p.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjxTpfmYUoISVr8dhfmLx3jZf0vKXMBpk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "250489968199-l32k2rio11bvqpvne5r2c632gdig9i6p.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "250489968199-nn835jd8o023p2j5ja600h9sar8rsaol.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.predoc.predoc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
